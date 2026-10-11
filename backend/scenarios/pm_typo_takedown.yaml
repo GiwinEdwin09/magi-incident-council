@@ -1,0 +1,67 @@
+id: pm_typo_takedown
+title: "Object storage down after a mistyped capacity command"
+company: "Northwind Cloud"
+kind: postmortem
+based_on: { name: "Amazon S3 us-east-1 disruption, February 28, 2017", url: "https://aws.amazon.com/message/41926/" }
+summary: "A maintenance command removed far more servers than intended. The only path back is a slow full restart, and the status page is hosted on the broken service."
+services: [blob-store]
+speed: 6
+end_after_s: 600
+
+world:
+  services:
+    blob-store: { region: us-east, latency_p99_ms: 30000, error_rate: 1.0, version: "2017.2", slo_p99_ms: 200 }
+  assets:
+    index-fleet: { role: index, serving: false, suspicious: false }
+    placement-fleet: { role: placement, serving: false, suspicious: false }
+  clusters: {}
+  flags: { status_page: "operational (stale: the status page itself is served from blob-store)" }
+
+dynamics: []
+effects: {}
+
+source_reliability: { metrics: 0.95, deploys: 0.98, runbook: 0.9, customers: 0.9, tool: 0.95 }
+
+policies:
+  MELCHIOR: { REL-1: "Restore the storage API in the region as fast as safely possible." }
+  BALTHASAR: { DATA-2: "Index metadata must pass integrity checks before the service accepts writes again." }
+  CASPER: { CUS-1: "Customers must get a truthful status update within 15 minutes of a regional outage, through any working channel." }
+
+timeline:
+  - { t: 0, id: E-1, source: metrics, visible_to: [MELCHIOR, BALTHASAR, CASPER],
+      content: "ALERT blob-store us-east: 100% of GET/PUT/LIST requests failing since 09:37. Dependent services (consoles, other products) failing too." }
+  - { t: 0, id: E-2, source: deploys, visible_to: [MELCHIOR],
+      content: "09:37 an engineer ran the remove-capacity playbook to take a few billing servers out. A mistyped input removed a large share of the index and placement subsystem servers instead." }
+  - { t: 0, id: E-3, source: runbook, visible_to: [MELCHIOR],
+      content: "Index and placement subsystems cannot run below quorum; they need a full cold restart, index first, then placement. Neither has been fully restarted in this region for years; safety checks make it take hours." }
+  - { t: 0, id: E-4, source: siem, visible_to: [BALTHASAR],
+      content: "No security event. Index metadata on the remaining servers is intact; integrity checks run during restart." }
+  - { t: 0, id: E-5, source: customers, visible_to: [CASPER],
+      content: "Thousands of customer apps are down. The public status page still shows all green: its icons and updates are stored in blob-store us-east, so it cannot be changed. Customers are asking on social media." }
+
+injections: []
+
+feeds:
+  get_metrics: { default: "blob-store us-east error rate {services.blob-store.error_rate:.0%}. Index and placement below quorum." }
+  get_recent_deploys: { default: "09:37 remove-capacity playbook run with a mistyped input. No software deploys." }
+  get_runbook: { default: "Full restart: index subsystem first, then placement. No faster partial path exists below quorum. Make the playbook refuse to drop a subsystem below minimum capacity (follow-up)." }
+  get_dependencies: { default: "The status page, console, and several products store assets in blob-store us-east." }
+  query_siem: { default: "No security events." }
+  check_ip_allowlist: { default: "Not relevant." }
+  get_process_list: { default: "index-fleet and placement-fleet: processes stopped on the removed hosts." }
+  get_replication_state: { default: "Index metadata intact on surviving servers; integrity checks will run during restart." }
+  get_customer_impact: { default: "Regional storage fully down; customers cannot tell from the status page, which still shows green." }
+  get_contracts: { default: "Storage SLA: 99.9% monthly with service credits." }
+  get_regulatory_obligations: { default: "No data loss or exposure; no notification obligations." }
+  get_status_page: { default: "Status page: {flags.status_page}. Publishing to it will not work until blob-store recovers." }
+
+decision_points:
+  - { id: DP1, at: 20, title: "Regional storage outage", question: "Storage is fully down in the region and the status page cannot be updated. What should the council do?" }
+
+labels:
+  DP1:
+    best: [["service.restart", "comms.alternate_channel"]]
+    acceptable_actions: [service.restart, comms.alternate_channel, comms.slack_update, deploy.halt_pipeline, investigate.verify, status_page.publish]
+    harmful_actions: [hold]
+    should_escalate: false
+    rationale: "The postmortem: the only fix was a full restart of both subsystems, and updates went out on social media because the status page depended on the failing service. CASPER-centric: comms through another channel matters as much as the restart."

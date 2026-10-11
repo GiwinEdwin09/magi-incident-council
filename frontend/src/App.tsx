@@ -2,6 +2,7 @@ import { useState } from "react";
 import { AgentCores } from "./components/AgentCores";
 import { DeliberationLog } from "./components/DeliberationLog";
 import { EscalationPanel } from "./components/EscalationPanel";
+import { EvalView } from "./components/EvalView";
 import { EvidencePanel } from "./components/EvidencePanel";
 import { ProposalBoard } from "./components/ProposalBoard";
 import { RecordView } from "./components/RecordView";
@@ -14,7 +15,9 @@ export default function App() {
   return (
     <div className="scanlines flex h-full flex-col">
       <TopBar tab={tab} setTab={setTab} />
-      {tab === "record" ? (
+      {tab === "eval" ? (
+        <EvalView />
+      ) : tab === "record" ? (
         <RecordView />
       ) : (
         <main className="grid min-h-0 flex-1 gap-3 p-3 lg:grid-cols-[minmax(260px,1fr)_minmax(0,2.2fr)_minmax(300px,1.2fr)] lg:overflow-hidden">

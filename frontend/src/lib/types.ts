@@ -115,6 +115,43 @@ export type Dossier = {
   reason: string;
 };
 
+export type EvalRate = { mean: number | null; lo?: number | null; hi?: number | null; n: number };
+
+export type EvalCondition = {
+  name: string;
+  runs: number;
+  decision_points: number;
+  harmful_rate: EvalRate;
+  harmful_unchecked_rate: EvalRate;
+  acceptable_rate: EvalRate;
+  best_rate: EvalRate;
+  escalation_accuracy: EvalRate;
+  escalation_precision: number | null;
+  escalation_recall: number | null;
+  false_evidence_rejection: EvalRate;
+  pages_per_dp: number | null;
+  initial_disagreement: EvalRate;
+  flips: Record<string, number>;
+  tokens_per_dp: number;
+  llm_calls_per_dp: number;
+  wall_s_per_dp: number;
+  errors: number;
+};
+
+export type EvalSummary = {
+  run: string;
+  config: { started?: string; models?: Record<string, string>; runs?: number };
+  conditions: Record<string, EvalCondition>;
+  hypotheses: { id: string; text: string; vs: string; council: number | null; baseline: number | null; verdict: string }[];
+  decision_points: {
+    scenario: string;
+    decision_point: string;
+    kind: string | null;
+    should_escalate?: boolean;
+    results: Record<string, { outcomes: string[]; harmful: number; best: number; escalated: number; runs: number; actions: string[] }>;
+  }[];
+};
+
 export type IncidentSummary = {
   id: string;
   title: string;
@@ -127,6 +164,9 @@ export type ScenarioInfo = {
   id: string;
   title: string;
   summary: string;
+  kind?: "demo" | "postmortem" | "synthetic";
+  based_on?: { name: string; url: string } | null;
+  has_script?: boolean;
   injections: { id: string; label: string }[];
 };
 

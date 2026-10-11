@@ -47,6 +47,7 @@ class Settings(BaseSettings):
     magi_signing_key: str = "dev-signing-key-change-me"
     n8n_shared_secret: str = ""
     elevenlabs_tool_secret: str = ""
+    elevenlabs_webhook_secret: str = ""  # HMAC secret of the workspace post-call webhook
     agent_token_melchior: str = ""
     agent_token_balthasar: str = ""
     agent_token_casper: str = ""

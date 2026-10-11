@@ -9,7 +9,10 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import hmac
+import json
+import time
 from pathlib import Path
 from typing import Any, Optional
 
@@ -97,6 +100,23 @@ async def start_incident(scenario_id: str, req: StartRequest) -> Incident:
 async def start(scenario_id: str, req: StartRequest) -> dict[str, Any]:
     inc = await start_incident(scenario_id, req)
     return {"incident_id": inc.id}
+
+
+EVAL_DIR = Path(__file__).resolve().parents[1] / "eval_results"
+
+
+@app.get("/api/eval/summary")
+async def eval_summary() -> dict[str, Any]:
+    """The newest live evaluation run (python -m magi.evaluation.run), for the Evaluation tab."""
+    live = []
+    for path in sorted(EVAL_DIR.glob("*/summary.json")):
+        data = json.loads(path.read_text())
+        if data.get("config", {}).get("mode") == "live":
+            live.append((path.parent.name, data))
+    if not live:
+        raise HTTPException(404, "no evaluation results yet: run python -m magi.evaluation.run")
+    name, data = live[-1]
+    return {"run": name, **data}
 
 
 @app.get("/api/incidents")
@@ -358,15 +378,37 @@ async def voice_ruling(req: VoiceRequest, x_magi_secret: Optional[str] = Header(
     return {"answer": msg}
 
 
-@app.post("/calls/post-call")
-async def post_call(payload: dict[str, Any], x_magi_secret: Optional[str] = Header(None)) -> dict[str, Any]:
-    """n8n W6 forwards the ElevenLabs post-call webhook (after verifying its HMAC)."""
-    require_secret(x_magi_secret, settings.n8n_shared_secret)
-    incident_id = payload.get("incident_id") or (payload.get("dynamic_variables") or {}).get("incident_id")
-    inc = INCIDENTS.get(incident_id or "")
-    if inc:
-        inc.bus.emit("call.status", {"status": "ended", "summary": payload.get("summary"),
-                                     "transcript": payload.get("transcript")})
+def verify_elevenlabs_signature(raw: bytes, header: Optional[str], secret: str, tolerance_s: int = 1800) -> bool:
+    """ElevenLabs-Signature: t=<unix ts>,v0=<hex HMAC-SHA256 of "<ts>.<raw body>">. Fails closed without a secret."""
+    if not secret or not header:
+        return False
+    parts = dict(p.split("=", 1) for p in header.split(",") if "=" in p)
+    ts, sig = parts.get("t", ""), parts.get("v0", "")
+    if not ts.isdigit() or abs(time.time() - int(ts)) > tolerance_s:
+        return False
+    expected = hmac.new(secret.encode(), f"{ts}.".encode() + raw, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(expected, sig)
+
+
+@app.post("/calls/elevenlabs")
+async def elevenlabs_post_call(request: Request, elevenlabs_signature: Optional[str] = Header(None)) -> dict[str, Any]:
+    """ElevenLabs' workspace post-call webhook, verified here, then summarized to Slack through n8n."""
+    raw = await request.body()
+    if not verify_elevenlabs_signature(raw, elevenlabs_signature, settings.elevenlabs_webhook_secret):
+        raise HTTPException(401, "bad signature")
+    payload = json.loads(raw)
+    if payload.get("type") != "post_call_transcription":
+        return {"ok": True, "ignored": payload.get("type")}
+    data = payload.get("data") or {}
+    dyn = (data.get("conversation_initiation_client_data") or {}).get("dynamic_variables") or {}
+    incident_id = dyn.get("incident_id") or ""
+    summary = (data.get("analysis") or {}).get("transcript_summary") or "no summary"
+    text = f"📞 Call ended for {incident_id or 'an unknown incident'}: {summary}"
+    inc = INCIDENTS.get(incident_id)
+    if inc is not None:
+        inc.call_ended(text, summary, data.get("conversation_id"), (data.get("metadata") or {}).get("call_duration_secs"))
+    elif n8n.enabled:  # the incident ended or the server restarted: still tell the channel
+        await n8n.notify({"incident_id": incident_id, "text": text, "kind": "call_summary"})
     return {"ok": True}
 
 

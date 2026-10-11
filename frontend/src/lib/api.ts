@@ -1,4 +1,4 @@
-import type { AppConfig, IncidentSummary, ScenarioInfo } from "./types";
+import type { AppConfig, EvalSummary, IncidentSummary, ScenarioInfo } from "./types";
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const r = await fetch(path, {
@@ -29,5 +29,6 @@ export const api = {
     post<{ content: string }>(`/api/incidents/${incident}/unseal`, { evidence_id, code }),
   confirm: (incident: string, decision: string, approved: boolean, by: string) =>
     post(`/api/incidents/${incident}/confirm/${decision}`, { approved, by }),
+  evalSummary: () => req<EvalSummary>("/api/eval/summary"),
   record: (incident: string) => req<{ markdown: string }>(`/api/incidents/${incident}/record`),
 };

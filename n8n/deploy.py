@@ -177,7 +177,7 @@ def main() -> None:
         print("Some workflows are not live yet. Fix the items above and re-run this script.")
     else:
         print("All workflows are live. Restart the MAGI backend; its header should read n8n:on.")
-    print(f"Webhooks: {base.rstrip('/')}/webhook/magi/<notify|tool|execute|confirm|escalate|close|alert|post-call>")
+    print(f"Webhooks: {base.rstrip('/')}/webhook/magi/<notify|tool|execute|confirm|escalate|close|alert|voice>")
 
 
 if __name__ == "__main__":

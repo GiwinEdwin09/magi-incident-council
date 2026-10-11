@@ -163,19 +163,6 @@ def build() -> dict[str, dict]:
         respond("5", "={{ JSON.stringify({ conversation_id: $json.conversation_id, callSid: $json.callSid, success: $json.success, message: $json.message }) }}", 520),
     ], chain("Webhook", "Call on-call (ElevenLabs)", "Respond to MAGI"))
 
-    # 6 · post-call: ElevenLabs post-call webhook -> MAGI + Slack summary
-    data = "$('Webhook').first().json.body.data"
-    wfs["6_post_call"] = workflow("MAGI 6 · Post-call summary", [
-        webhook("6", "magi/post-call", "onReceived", auth=False),
-        http("6", "Send call record to MAGI", f"{BACKEND_PLACEHOLDER}/calls/post-call",
-             f"={{{{ JSON.stringify({{ incident_id: {data}?.conversation_initiation_client_data?.dynamic_variables?.incident_id, "
-             f"summary: {data}?.analysis?.transcript_summary, transcript: {data}?.transcript }}) }}}}",
-             SECRET, 260, never_error=True),
-        slack_post("6", "Post call summary",
-                   f"=📞 Call ended for {{{{ {data}?.conversation_initiation_client_data?.dynamic_variables?.incident_id }}}}: "
-                   f"{{{{ {data}?.analysis?.transcript_summary || 'no summary' }}}}", 520),
-    ], chain("Webhook", "Send call record to MAGI", "Post call summary"))
-
     # 7 · close: the decision record (postmortem draft) -> #incident
     wfs["7_decision_record"] = workflow("MAGI 7 · Decision record", [
         webhook("7", "magi/close", "onReceived"),

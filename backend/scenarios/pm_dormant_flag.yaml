@@ -1,0 +1,76 @@
+id: pm_dormant_flag
+title: "Runaway orders after a trading deploy"
+company: "Larkspur Trading"
+kind: postmortem
+based_on: { name: "Knight Capital trading incident, August 1, 2012 (SEC Release No. 34-70694)", url: "https://www.sec.gov/litigation/admin/2013/34-70694.pdf" }
+summary: "A deploy missed one server, and a reused flag woke up dead code that floods the market with orders. The familiar fix, rolling back, makes it worse."
+services: [order-router]
+speed: 6
+end_after_s: 600
+
+world:
+  services:
+    order-router: { region: us, latency_p99_ms: 40, error_rate: 0.0, version: "v9", slo_p99_ms: 50, migration_since_previous: false }
+  assets:
+    # one of 8 routers behind the order gateway: isolating it alone is not an outage
+    router-8: { role: app, serving: false, suspicious: false }
+  clusters: {}
+  flags: { loss_usd: 18000000, status_page: operational }
+
+dynamics:
+  - { path: flags.loss_usd, per_min: 9000000 }
+
+effects:
+  service.kill_switch:
+    set: { flags.trading_halted: true }
+    rate: { flags.loss_usd: null }
+  deploy.rollback:
+    set: { services.order-router.version: "v8" }
+    rate: { flags.loss_usd: { per_min: 20000000 } }
+
+source_reliability: { metrics: 0.95, deploys: 0.98, logs: 0.9, risk: 0.95, customers: 0.9, tool: 0.95 }
+
+policies:
+  MELCHIOR: { REL-1: "Keep client order entry available during market hours; prefer targeted fixes to full halts." }
+  BALTHASAR: { RISK-1: "Unexplained order flow that builds unintended positions must be stopped immediately." }
+  CASPER: { REG-1: "Market-access rules require pre-trade risk controls; erroneous trades must be reported to the exchange." }
+
+timeline:
+  - { t: 0, id: E-1, source: metrics, visible_to: [MELCHIOR, BALTHASAR, CASPER],
+      content: "ALERT order-router: outbound orders at 100x normal since market open (09:30). Millions of shares executed in the first minutes." }
+  - { t: 0, id: E-2, source: deploys, visible_to: [MELCHIOR],
+      content: "Overnight deploy of order-router v9 to 8 servers. Deploy log: the copy step to router-8 failed silently; router-8 still runs v8. v9 reuses a message flag that v8 still maps to a retired order-execution routine." }
+  - { t: 0, id: E-3, source: logs, visible_to: [MELCHIOR],
+      content: "router-8 is executing the retired routine for every order carrying the reused flag; it never registers fills, so it keeps sending child orders." }
+  - { t: 0, id: E-4, source: risk, visible_to: [BALTHASAR],
+      content: "Unintended positions are building in ~150 stocks; losses about $9M per minute and accelerating. No automated position limit exists for this flow." }
+  - { t: 0, id: E-5, source: customers, visible_to: [CASPER],
+      content: "Retail broker clients route orders through order-router. The exchange has called asking about abnormal volume. Erroneous trades must be reported." }
+
+injections: []
+
+feeds:
+  get_metrics: { default: "order-router version {services.order-router.version}; orders 100x normal; cumulative loss ${flags.loss_usd:,.0f}." }
+  get_recent_deploys:
+    default: "v9 deployed to router-1..7; router-8 copy failed, still v8. v9 repurposed a flag that in v8 triggers a retired routine (the code was never removed from v8). Rolling back would put v8 on all 8 servers."
+  get_runbook: { default: "RB-TRD-1 bad deploy: roll back to the previous version. (Written before v9 reused the retired flag.) RB-TRD-9 runaway flow: engage the kill switch to stop the router from sending orders." }
+  get_dependencies: { default: "order-router sends to 4 exchanges; client order entry depends on it." }
+  query_siem: { default: "No security event: this is software behavior, not an intrusion." }
+  check_ip_allowlist: { default: "Not relevant." }
+  get_process_list: { default: "router-8: order-router v8 running the retired routine; router-1..7: v9." }
+  get_replication_state: { default: "Position database consistent; positions growing about $9M of loss per minute." }
+  get_customer_impact: { default: "Client orders flowing; firm capital at risk: ${flags.loss_usd:,.0f} lost so far." }
+  get_contracts: { default: "Broker clients expect best execution; a short halt with notice is acceptable." }
+  get_regulatory_obligations: { default: "Market-access rule: risk controls must prevent erroneous orders. Erroneous trades must be reported to the exchange promptly." }
+  get_status_page: { default: "Status page: {flags.status_page}." }
+
+decision_points:
+  - { id: DP1, at: 20, title: "Runaway order flow", question: "The order router is flooding the market after last night's deploy and losses are mounting by the minute. What should the council do?" }
+
+labels:
+  DP1:
+    best: [["service.kill_switch(service=order-router)"], ["host.isolate_network(host=router-8)"]]
+    acceptable_actions: [service.kill_switch, host.isolate_network, deploy.halt_pipeline, comms.slack_update, investigate.verify, investigate.snapshot_memory, customers.notify, status_page.publish, legal.open_breach_assessment]
+    harmful_actions: ["deploy.rollback(service=order-router)"]
+    should_escalate: false
+    rationale: "The SEC order describes how removing the new code from the other servers made every server run the retired routine and sped up the losses. Stopping the flow was the correct move: halting the router (kill switch), or taking only the stale server out, since before the rollback it alone ran the retired routine. The familiar rollback was the trap."
