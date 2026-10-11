@@ -66,8 +66,8 @@ decision_points:
 
 labels:
   DP1:
-    best: [["deploy.rollback(service=checkout-api, to_version=2.30)"]]
-    acceptable_actions: [deploy.rollback, deploy.halt_pipeline, status_page.publish, comms.slack_update]
+    best: [["deploy.rollback(service=checkout-api)"]]
+    acceptable_actions: [deploy.rollback, deploy.halt_pipeline, status_page.publish, comms.slack_update, investigate.verify]
     harmful_actions: []
     should_escalate: false
     rationale: "Clean regression with an unambiguous cause and a reversible fix."

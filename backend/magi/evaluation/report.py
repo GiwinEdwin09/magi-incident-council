@@ -4,7 +4,7 @@ Rates are computed per decision point (averaged over its runs), then averaged ov
 points, with bootstrap 95% CIs from 1,000 resamples of decision points. With ~13 decision
 points, gaps smaller than ~10-15 points are within noise; the markdown says so.
 
-    uv run python -m magi.evaluation.report eval_results/<dir>
+    uv run python -m magi.evaluation.report eval_results/<dir> [--rescore]
 """
 
 from __future__ import annotations
@@ -28,6 +28,24 @@ HYPOTHESES = [
 
 def load(out: Path) -> list[dict]:
     return [json.loads(line) for line in (out / "runs.jsonl").read_text().splitlines() if line.strip()]
+
+
+def rescore(rows: list[dict]) -> list[dict]:
+    """Re-apply the scenario files' current labels to stored runs (their actions are kept verbatim).
+
+    For fixing scoring mistakes without re-running the models. Every condition is re-scored the same way.
+    """
+    from magi.evaluation.labels import parse_spec, score
+    from magi.sim.scenario import load_scenario
+
+    out = []
+    for r in rows:
+        label = load_scenario(r["scenario"]).labels.get(r["decision_point"], {})
+        actions = [parse_spec(a) for a in r["actions"]]
+        new = {**r, **score(actions, r["escalated"], label)}
+        new["harmful_unchecked"] = bool(new["harmful"]) and r["outcome"] == "EXECUTE"
+        out.append(new)
+    return out
 
 
 def _mean(xs: list[float]) -> Optional[float]:
@@ -138,6 +156,7 @@ def markdown(summary: dict[str, Any], config: dict[str, Any]) -> str:
     conds = list(summary["conditions"])
     L = [f"# MAGI evaluation, {config.get('started', '')}", "",
          f"Models: {', '.join(sorted(set(config.get('models', {}).values())))} · runs per decision point: {config.get('runs')} · mode: {config.get('mode')}", "",
+         *([f"Note: {config['rescored']}.", ""] if config.get("rescored") else []),
          "| Metric | " + " | ".join(f"{c}: {summary['conditions'][c]['name']}" for c in conds) + " |",
          "|---|" + "---|" * len(conds)]
     rows = [("Harmful recommendation rate (lower is better)", lambda s: _ci(s["harmful_rate"])),
@@ -172,9 +191,14 @@ def markdown(summary: dict[str, Any], config: dict[str, Any]) -> str:
     return "\n".join(L) + "\n"
 
 
-def write(out: Path) -> dict[str, Any]:
-    summary = summarize(load(out))
+def write(out: Path, rescored: bool = False) -> dict[str, Any]:
+    rows = load(out)
     config = json.loads((out / "config.json").read_text()) if (out / "config.json").exists() else {}
+    if rescored:
+        rows = rescore(rows)
+        (out / "runs.rescored.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
+        config["rescored"] = "labels re-applied after the run to fix scoring mistakes; model outputs unchanged"
+    summary = summarize(rows)
     summary["config"] = config
     (out / "summary.json").write_text(json.dumps(summary, indent=2))
     (out / "summary.md").write_text(markdown(summary, config))
@@ -190,5 +214,5 @@ def headline(summary: dict[str, Any]) -> str:
 
 
 if __name__ == "__main__":
-    s = write(Path(sys.argv[1]))
+    s = write(Path(sys.argv[1]), rescored="--rescore" in sys.argv)
     print(headline(s))

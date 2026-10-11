@@ -28,7 +28,7 @@ function Bar({ cond, r }: { cond: string; r: EvalRate }) {
           <div className="absolute top-1/2 h-px bg-ink" style={{ left: `${r.lo * 100}%`, width: `${Math.max((r.hi - r.lo) * 100, 0.5)}%` }} />
         )}
       </div>
-      <span className="w-24 text-right font-mono text-[12px]">
+      <span className="w-32 shrink-0 text-right font-mono text-[12px]">
         {pct(r.mean)}{r.lo != null && r.hi != null ? <span className="text-dim"> [{pct(r.lo)}–{pct(r.hi)}]</span> : null}
       </span>
     </div>
