@@ -1,0 +1,104 @@
+{
+  "name": "MAGI 2 · Agent tool gateway",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "magi/tool",
+        "responseMode": "responseNode",
+        "options": {},
+        "authentication": "headerAuth"
+      },
+      "id": "5a97d6ad-595f-52f8-a196-e369f769b3da",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "6ab736bd-8f42-57c3-b2f3-f3099cfe4747",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "magiSecretCred01",
+          "name": "MAGI shared secret"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.body.backend_url }}/sim/{{ $json.body.incident_id }}/tool",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ agent: $json.body.agent, token: $json.body.token, tool: $json.body.tool, params: $json.body.params }) }}",
+        "options": {
+          "timeout": 10000
+        },
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth"
+      },
+      "id": "fa4bd8c3-b87e-53b4-99ec-a0e21b1e0ca6",
+      "name": "Fetch tool data",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        260,
+        0
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "magiSecretCred01",
+          "name": "MAGI shared secret"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ result: $json.result }) }}",
+        "options": {}
+      },
+      "id": "7a3da9e0-4e89-5a81-a7f6-466188cc01cc",
+      "name": "Respond to MAGI",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        520,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Fetch tool data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch tool data": {
+      "main": [
+        [
+          {
+            "node": "Respond to MAGI",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false
+  }
+}

@@ -1,0 +1,77 @@
+{
+  "name": "MAGI 7 · Decision record",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "magi/close",
+        "responseMode": "onReceived",
+        "options": {},
+        "authentication": "headerAuth"
+      },
+      "id": "d850bcb5-0d8b-5609-907d-7b6c1a77452f",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "bd4c6e9a-fc6c-503a-96cb-5326fa89e943",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "magiSecretCred01",
+          "name": "MAGI shared secret"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "#incident",
+          "mode": "name"
+        },
+        "messageType": "text",
+        "text": "=📋 *Decision record*\n{{ $json.body.record_markdown }}",
+        "otherOptions": {}
+      },
+      "id": "4293feee-d565-5648-a9e1-7381c25900b6",
+      "name": "Post decision record",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.3,
+      "position": [
+        260,
+        0
+      ],
+      "credentials": {
+        "slackApi": {
+          "id": "magiSlackCred001",
+          "name": "Slack (MAGI bot)"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Post decision record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false
+  }
+}

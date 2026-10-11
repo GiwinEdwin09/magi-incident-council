@@ -80,6 +80,7 @@ class Incident:
         self._idle_since: Optional[float] = None
         self._auto_injected: set[str] = set()
         self._pending_assess: list[str] = []  # evidence that arrived between decision points
+        self._background: set[asyncio.Task] = set()
 
     # ================================================================ lifecycle
     def start(self) -> None:
@@ -479,8 +480,15 @@ class Incident:
 
     # ================================================================ slack echo & record
     def _slack(self, text: str, kind: str, via: str | None = None) -> None:
+        """Every MAGI message is echoed in the UI; with n8n configured it also goes to real Slack
+        through the notify workflow (the decision record goes through the close workflow instead)."""
         self.bus.emit("slack.message", {"channel": "#incident", "text": text, "kind": kind,
                                         "via": via or ("n8n" if self.n8n.enabled else "local")})
+        if self.n8n.enabled and kind != "record":
+            task = asyncio.get_running_loop().create_task(
+                self.n8n.notify({"incident_id": self.id, "text": text, "kind": kind}))
+            self._background.add(task)
+            task.add_done_callback(self._background.discard)
 
     def record(self) -> str:
         def t(s: float) -> str:

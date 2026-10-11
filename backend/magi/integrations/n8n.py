@@ -36,6 +36,8 @@ class N8nClient:
             return None
         url = self.settings.n8n_base_url.rstrip("/") + PATHS[kind]
         headers = {"X-MAGI-Secret": self.settings.n8n_shared_secret}
+        # Workflows call back into MAGI using this URL, so nothing is hardcoded in n8n.
+        payload = {**payload, "backend_url": self.settings.public_backend_url.rstrip("/")}
         try:
             async with httpx.AsyncClient(timeout=timeout) as client:
                 r = await client.post(url, json=payload, headers=headers)

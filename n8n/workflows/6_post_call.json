@@ -1,0 +1,114 @@
+{
+  "name": "MAGI 6 · Post-call summary",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "magi/post-call",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "e90ff4ce-aba1-5ec6-a3ff-8cb7ca23d5c8",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "c416f466-bb78-5567-91c1-fef58aa5bd3f"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://YOUR-MAGI-BACKEND/calls/post-call",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ incident_id: $('Webhook').first().json.body.data?.conversation_initiation_client_data?.dynamic_variables?.incident_id, summary: $('Webhook').first().json.body.data?.analysis?.transcript_summary, transcript: $('Webhook').first().json.body.data?.transcript }) }}",
+        "options": {
+          "timeout": 10000,
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        },
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth"
+      },
+      "id": "81ba2596-1b20-5d37-b508-ed8c2167c796",
+      "name": "Send call record to MAGI",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        260,
+        0
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "magiSecretCred01",
+          "name": "MAGI shared secret"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "#incident",
+          "mode": "name"
+        },
+        "messageType": "text",
+        "text": "=📞 Call ended for {{ $('Webhook').first().json.body.data?.conversation_initiation_client_data?.dynamic_variables?.incident_id }}: {{ $('Webhook').first().json.body.data?.analysis?.transcript_summary || 'no summary' }}",
+        "otherOptions": {}
+      },
+      "id": "7cc7e286-3a85-5887-a6ef-1067b12c0706",
+      "name": "Post call summary",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.3,
+      "position": [
+        520,
+        0
+      ],
+      "credentials": {
+        "slackApi": {
+          "id": "magiSlackCred001",
+          "name": "Slack (MAGI bot)"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Send call record to MAGI",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send call record to MAGI": {
+      "main": [
+        [
+          {
+            "node": "Post call summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false
+  }
+}

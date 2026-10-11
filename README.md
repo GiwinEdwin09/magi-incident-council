@@ -54,6 +54,7 @@ backend/            FastAPI + asyncio council engine (Python 3.12, uv)
   scenarios/        incident scenarios + scripted agent outputs
   tests/            invariants: need-to-know, sealed redaction, decision rules, end-to-end scenarios
 frontend/           React + Vite + Tailwind control room (pure function of the event log)
+n8n/                importable workflows + setup guide
 elevenlabs/         voice agent prompt and server-tool definitions
 MAGI_BUILD_PLAN.md  the full build plan
 reports/, research_notes/   competitive landscape research
@@ -68,7 +69,7 @@ reports/, research_notes/   competitive landscape research
 | Control-room UI (evidence, agents, ballot, proposals, log, escalation, confirm, decision record) | ✅ |
 | Integration endpoints for n8n (`/alerts`, `/sim/*`, `/confirm/*`) and ElevenLabs (`/voice/*`) | ✅ built, local fallback when not configured |
 | Live Claude mode | ⚠️ implemented, not yet run (needs an API key) |
-| n8n workflows W1–W7 | ⏳ to build in n8n (spec in `MAGI_BUILD_PLAN.md` §12) |
+| n8n workflows (notify, alert intake, tool gateway, executor, T2 confirm, escalation call, post-call, decision record) | ✅ deployed with `python3 n8n/deploy.py` and tested end to end on n8n Cloud (S1 + S2 with zero fallbacks); guide in `n8n/README.md`. Escalation-call workflow waits for an ElevenLabs key |
 | ElevenLabs agent + Twilio number | ⏳ to configure (see `elevenlabs/README.md`) |
 | Evaluation harness and postmortem replay scenarios | ⏳ next (plan §15) |
 | AGNTCY / Brev stretch goals | ⏳ |

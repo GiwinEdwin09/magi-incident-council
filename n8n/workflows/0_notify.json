@@ -1,0 +1,77 @@
+{
+  "name": "MAGI 0 · Slack notify",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "magi/notify",
+        "responseMode": "onReceived",
+        "options": {},
+        "authentication": "headerAuth"
+      },
+      "id": "b178d831-061f-5e8a-b9b6-3e16fa188461",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "c1bc96e1-6f15-5cfc-b883-dd668647a0c8",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "magiSecretCred01",
+          "name": "MAGI shared secret"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "#incident",
+          "mode": "name"
+        },
+        "messageType": "text",
+        "text": "={{ $json.body.text }}",
+        "otherOptions": {}
+      },
+      "id": "0bf1e3bc-bbcc-50a7-b784-7a17085a2254",
+      "name": "Post to #incident",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.3,
+      "position": [
+        260,
+        0
+      ],
+      "credentials": {
+        "slackApi": {
+          "id": "magiSlackCred001",
+          "name": "Slack (MAGI bot)"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Post to #incident",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false
+  }
+}
