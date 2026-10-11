@@ -1,0 +1,859 @@
+# Scripted agent outputs for S2 "Ghost Process".
+# DP1: three different plans, reversible containment passes 3/3 (no page).
+# DP2: Condorcet cycle, BALTHASAR vetoes the restart, policies SEC-4 vs CUS-2 collide -> escalation.
+# If the IC adds information during the escalation (e.g. approves the write loss), round 3 converges on P-5.
+
+MELCHIOR:
+  PROPOSE:
+  - when:
+      dp: DP1
+    output:
+      assessment: pay-db primary db-7 is CPU-saturated (E-2) and RB-12 says a restart recovers in about 2 minutes (E-3). No deploy explains it.
+      key_claims:
+      - text: db-7 CPU saturation is the direct cause of the payment errors.
+        evidence_ids:
+        - E-1
+        - E-2
+        confidence: 0.85
+      - text: Runbook RB-12 restart has recovered this exact symptom before.
+        evidence_ids:
+        - E-3
+        confidence: 0.7
+      proposal:
+        title: Restart postgres on db-7 per RB-12
+        actions:
+        - action_id: host.restart
+          params:
+          - name: host
+            value: db-7
+        rationale: Fastest known recovery; REL-1 gives us 30 minutes and 31 minutes of budget.
+        expected_outcome: Payments recover within about 2 minutes.
+        risks:
+        - If the CPU load is not postgres, a restart may not help.
+      confidence: 0.7
+      insufficient_info: false
+      info_needed: []
+      tool_requests: []
+  - when:
+      dp: DP2
+    output:
+      assessment: Egress is blocked and memory is captured, but payments are still degraded. Restarting db-7 kills the CPU drain and restores service in about 2 minutes with no data loss.
+      key_claims:
+      - text: A restart of db-7 is now evidence-safe because memory was captured in DP1.
+        evidence_ids:
+        - E-2
+        confidence: 0.75
+      proposal:
+        title: Restart db-7 now that forensics are captured
+        actions:
+        - action_id: host.restart
+          params:
+          - name: host
+            value: db-7
+        rationale: Fastest restore, no write loss; forensics already captured.
+        expected_outcome: p99 under 1s within about 1 minute.
+        risks:
+        - A persistent implant could survive the restart.
+      confidence: 0.75
+      insufficient_info: false
+      info_needed: []
+      tool_requests: []
+  SCORE:
+  - when:
+      dp: DP1
+    output:
+      scores:
+      - proposal_ref: P-1@1
+        score: 8
+        reason: Restores payments fastest.
+      - proposal_ref: P-2@1
+        score: 4
+        reason: Failover restores service but isolation first risks a longer outage.
+      - proposal_ref: P-3@1
+        score: 5
+        reason: Shedding helps a little; does not fix the cause.
+      ranking:
+      - P-1@1
+      - P-3@1
+      - P-2@1
+  - when:
+      dp: DP2
+    output:
+      scores:
+      - proposal_ref: P-4@1
+        score: 9
+        reason: Fastest restore with no data loss.
+      - proposal_ref: P-5@1
+        score: 5
+        reason: Restores on db-8 quickly but loses writes.
+      - proposal_ref: P-6@1
+        score: 4
+        reason: Keeps payments degraded for about 20 more minutes.
+      ranking:
+      - P-4@1
+      - P-5@1
+      - P-6@1
+  CRITIQUE:
+  - when:
+      dp: DP1
+    output:
+      objections:
+      - proposal_ref: '{{latest:P-3}}'
+        text: Shedding 20% and a status update do not restore payments; error budget keeps burning (REL-1).
+        severity: major
+        would_accept_if: It also stops whatever is draining db-7.
+      challenges: []
+      amendment:
+        title: Snapshot db-7 memory, then restart it
+        actions:
+        - action_id: investigate.snapshot_memory
+          params:
+          - name: host
+            value: db-7
+        - action_id: host.restart
+          params:
+          - name: host
+            value: db-7
+        rationale: Addresses Security's evidence concern (C-3) while still restoring fast.
+        expected_outcome: Evidence preserved; payments recover in about 4 minutes.
+        risks:
+        - Restart may not remove a persistent implant.
+      amends_ref: '{{latest:P-1}}'
+      position:
+        preferred_proposal_ref: '{{latest:P-1}}'
+        confidence: 0.65
+        changed: false
+        change_cause: NO_CHANGE
+        cited_ids:
+        - E-3
+      tool_requests: []
+  - when:
+      dp: DP2
+      round: 3
+      seen_source: oncall_human
+    output:
+      objections: []
+      challenges: []
+      position:
+        preferred_proposal_ref: '{{latest:P-5}}'
+        confidence: 0.8
+        changed: true
+        change_cause: NEW_EVIDENCE
+        cited_ids:
+        - '{{src:oncall_human}}'
+      tool_requests: []
+  - when:
+      dp: DP2
+      round: 2
+    output:
+      objections: []
+      challenges: []
+      position:
+        preferred_proposal_ref: '{{latest:P-4}}'
+        confidence: 0.7
+        changed: false
+        change_cause: NO_CHANGE
+        cited_ids:
+        - E-2
+      tool_requests: []
+  - when:
+      dp: DP2
+    output:
+      objections:
+      - proposal_ref: '{{latest:P-6}}'
+        text: Waiting for the replica keeps payments failing for about 20 more minutes; REL-1 budget would be exhausted.
+        severity: major
+        would_accept_if: Catch-up were under 5 minutes.
+      - proposal_ref: '{{latest:P-5}}'
+        text: Failover restores availability, but discarding writes is not my call to make.
+        severity: minor
+        would_accept_if: The IC approves the write loss.
+      challenges: []
+      position:
+        preferred_proposal_ref: '{{latest:P-4}}'
+        confidence: 0.7
+        changed: false
+        change_cause: NO_CHANGE
+        cited_ids:
+        - E-2
+      tool_requests: []
+  DISSENT:
+  - when:
+      dp: DP1
+    output:
+      target_ref: '{{leading}}'
+      strongest_case_against: This plan contains the intrusion but leaves db-7 saturated, so payments keep failing at around 19% while we debate the next step.
+      failure_scenario: Merchants churn and the error budget is gone before containment is decided.
+  VOTE:
+  - when:
+      dp: DP1
+    output:
+      proposal_ref: '{{ballot_ref}}'
+      proposal_hash: '{{ballot_hash}}'
+      choice: ACCEPT
+      reason: Reversible and does not block a restart later; snapshot first is sensible.
+      would_change_if: It blocked a production dependency.
+      position:
+        preferred_proposal_ref: '{{latest:P-1}}'
+        confidence: 0.6
+        changed: false
+        change_cause: NO_CHANGE
+        cited_ids:
+        - E-3
+  - when:
+      dp: DP2
+      round: 3
+      seen_source: oncall_human
+    output:
+      proposal_ref: '{{ballot_ref}}'
+      proposal_hash: '{{ballot_hash}}'
+      choice: ACCEPT
+      reason: With the IC approving the write loss, failover is the fastest compliant restore.
+      would_change_if: db-8 were unhealthy.
+      position:
+        preferred_proposal_ref: '{{latest:P-5}}'
+        confidence: 0.8
+        changed: true
+        change_cause: NEW_EVIDENCE
+        cited_ids:
+        - '{{src:oncall_human}}'
+  - when:
+      dp: DP2
+    output:
+      proposal_ref: '{{ballot_ref}}'
+      proposal_hash: '{{ballot_hash}}'
+      choice: ACCEPT
+      reason: Restart restores payments in about a minute with zero write loss; memory is already captured.
+      would_change_if: Security showed the implant survives a restart.
+      position:
+        preferred_proposal_ref: '{{latest:P-4}}'
+        confidence: 0.7
+        changed: false
+        change_cause: NO_CHANGE
+        cited_ids:
+        - E-2
+  ASSESS:
+  - when:
+      evidence: E-13
+    output:
+      evidence_id: '{{target}}'
+      source_reliability: 0.3
+      plausibility: 0.35
+      corroborating_ids: []
+      contradicting_ids:
+      - E-4
+      credibility: 0.3
+      verdict: DOUBT
+      reason: Would explain the outbound traffic, but it comes from sales, not security, and a pentest does not explain the unsigned process.
+  - when: {}
+    output:
+      evidence_id: '{{target}}'
+      source_reliability: 0.9
+      plausibility: 0.85
+      corroborating_ids: []
+      contradicting_ids: []
+      credibility: 0.85
+      verdict: ACCEPT
+      reason: Consistent with what I see.
+BALTHASAR:
+  PROPOSE:
+  - when:
+      dp: DP1
+    output:
+      assessment: db-7 runs an unsigned process from /tmp (E-4) and has sent 2.1 GB to an address matching known theft infrastructure (E-5, sealed S-1). Treat as an active intrusion.
+      key_claims:
+      - text: db-7 is in contact with known data-theft infrastructure; exfiltration is likely ongoing.
+        evidence_ids:
+        - E-5
+        - S-1
+        confidence: 0.85
+      - text: An unsigned process spawned by postgres is consuming most of db-7's CPU.
+        evidence_ids:
+        - E-4
+        confidence: 0.9
+      - text: pay-db replication lag is 45s and rising, so a failover now would lose writes.
+        evidence_ids:
+        - E-6
+        confidence: 0.95
+      proposal:
+        title: 'Contain db-7: snapshot, block egress, isolate, fail over'
+        actions:
+        - action_id: investigate.snapshot_memory
+          params:
+          - name: host
+            value: db-7
+        - action_id: firewall.block_egress
+          params:
+          - name: host
+            value: db-7
+          - name: destination
+            value: 185.220.101.47
+        - action_id: host.isolate_network
+          params:
+          - name: host
+            value: db-7
+        - action_id: db.failover
+          params:
+          - name: cluster
+            value: pay-db
+        rationale: Stops exfiltration, preserves evidence, and satisfies SEC-4.
+        expected_outcome: Attacker access cut; payments restored on db-8.
+        risks:
+        - Failover at 45s lag discards writes.
+      confidence: 0.85
+      insufficient_info: false
+      info_needed: []
+      tool_requests:
+      - tool: get_process_list
+        params:
+        - name: host
+          value: db-7
+        reason: Confirm the unsigned process and its parent.
+  - when:
+      dp: DP2
+    output:
+      assessment: Egress is blocked but db-7 remains a compromised serving primary. SEC-4 requires isolation by T+15; the replica cannot catch up before then.
+      key_claims:
+      - text: Replica catch-up to under 5s needs about 20 more minutes, past the SEC-4 deadline.
+        evidence_ids:
+        - E-6
+        confidence: 0.85
+      proposal:
+        title: Isolate db-7 and fail over to db-8 now
+        actions:
+        - action_id: host.isolate_network
+          params:
+          - name: host
+            value: db-7
+        - action_id: db.failover
+          params:
+          - name: cluster
+            value: pay-db
+        rationale: Meets SEC-4 and removes the compromised host from service.
+        expected_outcome: Intruder cut off; payments served from db-8.
+        risks:
+        - Discards roughly lag × 27 payment writes.
+      confidence: 0.8
+      insufficient_info: false
+      info_needed: []
+      tool_requests:
+      - tool: get_replication_state
+        params:
+        - name: cluster
+          value: pay-db
+        reason: Current lag and catch-up rate.
+  SCORE:
+  - when:
+      dp: DP1
+    output:
+      scores:
+      - proposal_ref: P-1@1
+        score: 1
+        reason: Restart destroys in-memory evidence of an active intrusion.
+      - proposal_ref: P-2@1
+        score: 9
+        reason: Full containment.
+      - proposal_ref: P-3@1
+        score: 5
+        reason: Breach assessment is right; does nothing about exfiltration.
+      ranking:
+      - P-2@1
+      - P-3@1
+      - P-1@1
+  - when:
+      dp: DP2
+    output:
+      scores:
+      - proposal_ref: P-4@1
+        score: 1
+        reason: Keeps a compromised host as primary.
+      - proposal_ref: P-5@1
+        score: 9
+        reason: Meets SEC-4.
+      - proposal_ref: P-6@1
+        score: 4
+        reason: Isolates eventually, but after the SEC-4 deadline.
+      ranking:
+      - P-5@1
+      - P-6@1
+      - P-4@1
+  CRITIQUE:
+  - when:
+      dp: DP1
+    output:
+      objections:
+      - proposal_ref: '{{latest:P-1}}'
+        text: Restarting db-7 destroys volatile evidence of an active intrusion (E-4, S-1) and may not remove the implant.
+        severity: blocking
+        would_accept_if: A memory snapshot is taken first and the host is isolated within the SEC-4 window.
+      - proposal_ref: '{{latest:P-3}}'
+        text: Does nothing about ongoing exfiltration (E-5).
+        severity: major
+        would_accept_if: It also snapshots memory and blocks egress to 185.220.101.47.
+      challenges:
+      - claim_id: C-2
+        challenge: RB-12 assumes no security incident is open on the host; this one has one.
+        requested_evidence: get_runbook preconditions
+      amendment:
+        title: Breach assessment, status update, 20% shed, snapshot, egress block
+        actions:
+        - action_id: status_page.publish
+          params:
+          - name: severity
+            value: degraded
+          - name: message
+            value: Payments degraded in the EU; we are investigating.
+        - action_id: legal.open_breach_assessment
+          params:
+          - name: incident
+            value: current
+        - action_id: traffic.shed
+          params:
+          - name: service
+            value: payments-api
+          - name: percent
+            value: '20'
+        - action_id: investigate.snapshot_memory
+          params:
+          - name: host
+            value: db-7
+        - action_id: firewall.block_egress
+          params:
+          - name: host
+            value: db-7
+          - name: destination
+            value: 185.220.101.47
+        rationale: Adds the two reversible containment steps every mandate can accept.
+        expected_outcome: Exfiltration stops and evidence is preserved while we decide on isolation.
+        risks:
+        - db-7 stays serving until the containment decision.
+      amends_ref: '{{latest:P-3}}'
+      position:
+        preferred_proposal_ref: '{{latest:P-2}}'
+        confidence: 0.8
+        changed: false
+        change_cause: NO_CHANGE
+        cited_ids:
+        - E-5
+        - S-1
+      tool_requests: []
+  - when:
+      dp: DP2
+      round: 3
+      seen_source: oncall_human
+    output:
+      objections: []
+      challenges: []
+      position:
+        preferred_proposal_ref: '{{latest:P-5}}'
+        confidence: 0.9
+        changed: false
+        change_cause: NO_CHANGE
+        cited_ids:
+        - '{{src:oncall_human}}'
+      tool_requests: []
+  - when:
+      dp: DP2
+      round: 2
+    output:
+      objections: []
+      challenges: []
+      position:
+        preferred_proposal_ref: '{{latest:P-5}}'
+        confidence: 0.85
+        changed: false
+        change_cause: NO_CHANGE
+        cited_ids:
+        - E-6
+      tool_requests: []
+  - when:
+      dp: DP2
+    output:
+      objections:
+      - proposal_ref: '{{latest:P-4}}'
+        text: A restart keeps a compromised host as primary; the implant's persistence is unknown (E-4) and SEC-4 requires isolation by T+15.
+        severity: blocking
+        cites_policy: SEC-4
+        would_accept_if: db-7 is removed from service and isolated by T+15.
+      - proposal_ref: '{{latest:P-6}}'
+        text: Replica catch-up ends around T+24, past the SEC-4 deadline of T+15.
+        severity: blocking
+        cites_policy: SEC-4
+        would_accept_if: Isolation happens by T+15 regardless of lag.
+      challenges: []
+      position:
+        preferred_proposal_ref: '{{latest:P-5}}'
+        confidence: 0.85
+        changed: false
+        change_cause: NO_CHANGE
+        cited_ids:
+        - E-6
+      tool_requests: []
+  DISSENT:
+  - when:
+      dp: DP2
+    output:
+      target_ref: '{{leading}}'
+      strongest_case_against: Restarting keeps the compromised host as our payments primary. If the implant persists, the attacker returns with fresh access and we have missed the SEC-4 isolation deadline.
+      failure_scenario: kworkerds respawns after the restart and exfiltration resumes through a new route.
+  VOTE:
+  - when:
+      dp: DP1
+    output:
+      proposal_ref: '{{ballot_ref}}'
+      proposal_hash: '{{ballot_hash}}'
+      choice: ACCEPT
+      reason: Snapshot and egress block are my first two containment steps; isolation is decided next.
+      would_change_if: It dropped the egress block.
+      position:
+        preferred_proposal_ref: '{{latest:P-2}}'
+        confidence: 0.8
+        changed: false
+        change_cause: NO_CHANGE
+        cited_ids:
+        - E-5
+  - when:
+      dp: DP2
+      round: 3
+      seen_source: oncall_human
+    output:
+      proposal_ref: '{{ballot_ref}}'
+      proposal_hash: '{{ballot_hash}}'
+      choice: ACCEPT
+      reason: Isolation plus failover meets SEC-4.
+      would_change_if: The failover kept db-7 serving.
+      position:
+        preferred_proposal_ref: '{{latest:P-5}}'
+        confidence: 0.9
+        changed: false
+        change_cause: NO_CHANGE
+        cited_ids:
+        - E-6
+  - when:
+      dp: DP2
+    output:
+      proposal_ref: '{{ballot_ref}}'
+      proposal_hash: '{{ballot_hash}}'
+      choice: REJECT
+      reason: Keeps a compromised host serving and misses SEC-4.
+      blocking_objection: 'SEC-4: db-7 must be isolated by T+15.'
+      would_change_if: db-7 is isolated by T+15, even if that costs some writes.
+      position:
+        preferred_proposal_ref: '{{latest:P-5}}'
+        confidence: 0.85
+        changed: false
+        change_cause: NO_CHANGE
+        cited_ids:
+        - E-6
+  ASSESS:
+  - when:
+      evidence: E-13
+      seen_source: tool:check_ip_allowlist
+    output:
+      evidence_id: '{{target}}'
+      source_reliability: 0.3
+      plausibility: 0.05
+      corroborating_ids: []
+      contradicting_ids:
+      - '{{tool:check_ip_allowlist}}'
+      - E-4
+      credibility: 0.05
+      verdict: REJECT
+      reason: The allowlist shows the pentest uses 203.0.113.0/24, web tier only; 185.220.101.47 is not ours.
+  - when:
+      evidence: E-13
+    output:
+      evidence_id: '{{target}}'
+      source_reliability: 0.3
+      plausibility: 0.3
+      corroborating_ids: []
+      contradicting_ids:
+      - S-1
+      credibility: 0.25
+      verdict: DOUBT
+      reason: Unverified claim from outside security; contradicts the threat-intel match. Verifying against the allowlist.
+      verification:
+        tool: check_ip_allowlist
+        params:
+        - name: ip
+          value: 185.220.101.47
+        reason: Is this address a sanctioned pentest source?
+  - when: {}
+    output:
+      evidence_id: '{{target}}'
+      source_reliability: 0.9
+      plausibility: 0.85
+      corroborating_ids: []
+      contradicting_ids: []
+      credibility: 0.85
+      verdict: ACCEPT
+      reason: Consistent with my evidence.
+CASPER:
+  PROPOSE:
+  - when:
+      dp: DP1
+    output:
+      assessment: 18,400 EU merchants are failing payments at 27 writes per second (E-7). Personal and card data may be involved, so the GDPR 72-hour clock may start (E-8). Customers need honest communication
+        now.
+      key_claims:
+      - text: Every second of lag is about 27 payment writes at risk on failover.
+        evidence_ids:
+        - E-7
+        confidence: 0.85
+      - text: A personal-data breach would start a 72-hour GDPR notification clock.
+        evidence_ids:
+        - E-8
+        confidence: 0.9
+      proposal:
+        title: 'Protect customers: status update, breach assessment, shed 20%'
+        actions:
+        - action_id: status_page.publish
+          params:
+          - name: severity
+            value: degraded
+          - name: message
+            value: Payments degraded in the EU; we are investigating.
+        - action_id: legal.open_breach_assessment
+          params:
+          - name: incident
+            value: current
+        - action_id: traffic.shed
+          params:
+          - name: service
+            value: payments-api
+          - name: percent
+            value: '20'
+        rationale: Honest communication, starts the legal process without notifying anyone externally, and reduces failed payments.
+        expected_outcome: Fewer failed payments and fewer support tickets while containment is decided.
+        risks:
+        - Does not address the cause.
+      confidence: 0.75
+      insufficient_info: false
+      info_needed: []
+      tool_requests:
+      - tool: get_customer_impact
+        params:
+        - name: service
+          value: payments-api
+        reason: How many writes a failover would discard.
+  - when:
+      dp: DP2
+    output:
+      assessment: Lag is still about 40s, so failing over now discards roughly 1,000 payment writes. CUS-2 forbids that without IC approval. Waiting for catch-up avoids any loss.
+      key_claims:
+      - text: A failover now discards roughly 1,000 payment writes.
+        evidence_ids:
+        - E-7
+        confidence: 0.8
+      proposal:
+        title: Fail over only when lag is under 5s, then isolate db-7
+        actions:
+        - action_id: db.failover
+          params:
+          - name: cluster
+            value: pay-db
+          - name: when
+            value: lag<5s
+        - action_id: host.isolate_network
+          params:
+          - name: host
+            value: db-7
+          - name: after
+            value: failover
+        rationale: Zero write loss and the host is still isolated, just later.
+        expected_outcome: No discarded payments; db-7 isolated after catch-up.
+        risks:
+        - Payments stay degraded until catch-up (about 20 minutes).
+      confidence: 0.75
+      insufficient_info: false
+      info_needed: []
+      tool_requests: []
+  SCORE:
+  - when:
+      dp: DP1
+    output:
+      scores:
+      - proposal_ref: P-1@1
+        score: 3
+        reason: Fast, but ignores possible customer-data exposure.
+      - proposal_ref: P-2@1
+        score: 3
+        reason: Failover now discards customer payments.
+      - proposal_ref: P-3@1
+        score: 8
+        reason: Protects customers without irreversible steps.
+      ranking:
+      - P-3@1
+      - P-2@1
+      - P-1@1
+  - when:
+      dp: DP2
+    output:
+      scores:
+      - proposal_ref: P-4@1
+        score: 6
+        reason: No write loss, but the breach may widen.
+      - proposal_ref: P-5@1
+        score: 2
+        reason: Discards about 1,000 payments.
+      - proposal_ref: P-6@1
+        score: 9
+        reason: No loss and still isolates.
+      ranking:
+      - P-6@1
+      - P-4@1
+      - P-5@1
+  CRITIQUE:
+  - when:
+      dp: DP1
+    output:
+      objections:
+      - proposal_ref: '{{latest:P-2}}'
+        text: Failover at 45s lag discards about 1,200 EU payment writes (C-5, {{tool:get_customer_impact}}).
+        severity: blocking
+        cites_policy: CUS-2
+        would_accept_if: The IC approves the loss, or lag is under 5s.
+      challenges: []
+      position:
+        preferred_proposal_ref: '{{latest:P-3}}'
+        confidence: 0.75
+        changed: false
+        change_cause: NO_CHANGE
+        cited_ids:
+        - E-7
+      tool_requests: []
+  - when:
+      dp: DP2
+      round: 3
+      seen_source: oncall_human
+    output:
+      objections: []
+      challenges: []
+      position:
+        preferred_proposal_ref: '{{latest:P-5}}'
+        confidence: 0.8
+        changed: true
+        change_cause: NEW_EVIDENCE
+        cited_ids:
+        - '{{src:oncall_human}}'
+      tool_requests: []
+  - when:
+      dp: DP2
+      round: 2
+    output:
+      objections: []
+      challenges: []
+      position:
+        preferred_proposal_ref: '{{latest:P-6}}'
+        confidence: 0.75
+        changed: false
+        change_cause: NO_CHANGE
+        cited_ids:
+        - E-7
+      tool_requests: []
+  - when:
+      dp: DP2
+    output:
+      objections:
+      - proposal_ref: '{{latest:P-5}}'
+        text: Failing over at about 40s lag knowingly discards roughly 1,000 EU payment writes.
+        severity: blocking
+        cites_policy: CUS-2
+        would_accept_if: The IC approves the loss in writing, or lag is under 5s.
+      challenges: []
+      position:
+        preferred_proposal_ref: '{{latest:P-6}}'
+        confidence: 0.75
+        changed: false
+        change_cause: NO_CHANGE
+        cited_ids:
+        - E-7
+      tool_requests: []
+  DISSENT:
+  - when:
+      dp: DP2
+    output:
+      target_ref: '{{leading}}'
+      strongest_case_against: Failing over now means we knowingly discard real customer payments and must reconcile them by hand with card processors.
+      failure_scenario: Merchants see missing settlements tomorrow and support is flooded.
+  VOTE:
+  - when:
+      dp: DP1
+    output:
+      proposal_ref: '{{ballot_ref}}'
+      proposal_hash: '{{ballot_hash}}'
+      choice: ACCEPT
+      reason: Reversible, protects customers, and the status message is honest.
+      would_change_if: It notified customers externally.
+      position:
+        preferred_proposal_ref: '{{latest:P-3}}'
+        confidence: 0.8
+        changed: false
+        change_cause: NO_CHANGE
+        cited_ids:
+        - E-7
+  - when:
+      dp: DP2
+      round: 3
+      seen_source: oncall_human
+    output:
+      proposal_ref: '{{ballot_ref}}'
+      proposal_hash: '{{ballot_hash}}'
+      choice: ACCEPT
+      reason: The IC approved the write loss, which satisfies CUS-2.
+      would_change_if: The approval were withdrawn.
+      position:
+        preferred_proposal_ref: '{{latest:P-5}}'
+        confidence: 0.8
+        changed: true
+        change_cause: NEW_EVIDENCE
+        cited_ids:
+        - '{{src:oncall_human}}'
+  - when:
+      dp: DP2
+    output:
+      proposal_ref: '{{ballot_ref}}'
+      proposal_hash: '{{ballot_hash}}'
+      choice: ACCEPT
+      reason: A restart loses no customer payments.
+      would_change_if: The IC approved discarding writes, or the restart risked customer data.
+      position:
+        preferred_proposal_ref: '{{latest:P-6}}'
+        confidence: 0.75
+        changed: false
+        change_cause: NO_CHANGE
+        cited_ids:
+        - E-7
+  ASSESS:
+  - when:
+      evidence: E-13
+    output:
+      evidence_id: '{{target}}'
+      source_reliability: 0.3
+      plausibility: 0.25
+      corroborating_ids: []
+      contradicting_ids: []
+      credibility: 0.2
+      verdict: REJECT
+      reason: A hallway rumor is not a basis for telling customers this is a test; I will not change communications on it.
+  - when: {}
+    output:
+      evidence_id: '{{target}}'
+      source_reliability: 0.9
+      plausibility: 0.85
+      corroborating_ids: []
+      contradicting_ids: []
+      credibility: 0.85
+      verdict: ACCEPT
+      reason: Consistent with customer impact data.
+SCRIBE:
+  SCRIBE:
+  - when:
+      dp: DP2
+    output:
+      situation: Payments are degraded. db-7, the payments database, was contacted by a known data-theft server. Its outbound traffic is blocked and its memory is saved, but it is still serving payments.
+      crux: Restart db-7 and keep it serving, isolate it and fail over now losing about 1,000 payment writes, or wait about 20 minutes for zero loss and miss the 15-minute isolation policy?
+      option_summaries:
+      - Restart db-7 now. Fastest, no data loss. Security says the intruder may persist and the isolation policy is missed.
+      - Isolate db-7 and fail over to db-8 now. Meets the isolation policy. Discards about 1,000 payment writes.
+      - Wait for the replica to catch up, then fail over and isolate. No data loss. Payments degraded about 20 more minutes; isolation policy missed.
