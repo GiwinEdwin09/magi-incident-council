@@ -24,3 +24,6 @@ backend/magi.sqlite
 backend/recordings/
 backend/.pytest_cache/
 frontend/dist/
+
+# Vite dependency cache
+frontend/.vite/

@@ -381,7 +381,7 @@ export function reduce(v: View, e: MagiEvent): View {
 
     case "incident.resolved":
       v.resolved = p;
-      log("incident", `Incident resolved. Pages: ${p.pages}, LLM calls: ${p.llm_calls}, est. cost $${p.cost_usd}`, "ok");
+      log("incident", `Incident resolved. Pages: ${p.pages}, LLM calls: ${p.llm_calls}, tokens: ${p.input_tokens + p.output_tokens}${p.cost_usd != null ? `, est. cost $${p.cost_usd}` : ""}`, "ok");
       break;
   }
   return v;

@@ -15,7 +15,7 @@ from magi.sim.scenario import load_scenario
 def make_settings(**kw) -> Settings:
     base = dict(magi_mode="scripted", n8n_base_url="", anthropic_api_key="", confirm_timeout_s=5.0)
     base.update(kw)
-    return Settings(**base)
+    return Settings(_env_file=None, **base)  # never read a developer's .env in tests
 
 
 async def run_scenario(scenario_id: str, on_tick: Optional[Callable[[Incident], None]] = None,

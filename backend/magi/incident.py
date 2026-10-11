@@ -41,7 +41,6 @@ from magi.sim.scenario import Scenario
 from magi.sim.world import World
 
 TICK_S = 0.25
-PRICE_PER_MTOK = {"in": 4.0, "out": 20.0}  # Claude Opus 5.5 list price, Oct 2026
 
 
 class Incident:
@@ -185,8 +184,9 @@ class Incident:
     async def close(self) -> None:
         if self.closed:
             return
-        cost = (self.metrics["input_tokens"] * PRICE_PER_MTOK["in"] + self.metrics["output_tokens"] * PRICE_PER_MTOK["out"]) / 1e6
-        summary = {**self.metrics, "cost_usd": round(cost, 3), "wall_s": round(time.monotonic() - self._started_wall, 1),
+        pin, pout = self.settings.llm_price_in_per_mtok, self.settings.llm_price_out_per_mtok
+        cost = (self.metrics["input_tokens"] * pin + self.metrics["output_tokens"] * pout) / 1e6 if (pin or pout) else None
+        summary = {**self.metrics, "cost_usd": round(cost, 3) if cost is not None else None, "wall_s": round(time.monotonic() - self._started_wall, 1),
                    "sim_s": round(self.state.sim_ts, 1),
                    "decisions": [d.model_dump(mode="json") for d in self.state.decisions]}
         self.bus.emit("incident.resolved", summary)
@@ -364,10 +364,13 @@ class Incident:
                                         "confirm_code": dossier.confirm_code, "dynamic_variables": dyn,
                                         "agent_id": self.settings.elevenlabs_agent_id,
                                         "agent_phone_number_id": self.settings.elevenlabs_phone_number_id})
-        if resp and "error" not in resp:
+        if resp and "error" not in resp and resp.get("conversation_id"):
             self.bus.emit("call.status", {"status": "dialing", "conversation_id": resp.get("conversation_id")})
         else:
-            self.bus.emit("call.status", {"status": "failed", "detail": (resp or {}).get("error", "n8n unavailable")})
+            # ElevenLabs/Twilio refusals come back as {success: false, message: ...} with no conversation id
+            detail = (resp or {}).get("error") or (resp or {}).get("message") or "n8n unavailable"
+            self.bus.emit("call.status", {"status": "failed", "detail": f"{detail} Rule from the MAGI screen instead."})
+            self._slack(f"⚠️ Escalation call for {self.id} failed: {detail}", kind="call_failed")
 
     async def build_dossier(self, council: Council, reason: str, info_needed: list[str]) -> Dossier:
         props = self.state.registry.latest_for_dp(council.dp.id)

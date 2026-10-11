@@ -3,16 +3,19 @@
 /api/*            operator + UI endpoints (proxied by the Vite dev server)
 /ws/incidents/*   event stream
 /sim/*, /alerts, /confirm/*, /voice/*, /calls/*   integration endpoints for n8n and ElevenLabs
+/                 the built UI from frontend/dist, when present
 """
 
 from __future__ import annotations
 
 import asyncio
 import hmac
+from pathlib import Path
 from typing import Any, Optional
 
 from fastapi import FastAPI, Header, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from magi.config import get_settings
@@ -60,9 +63,9 @@ async def healthz() -> dict[str, Any]:
 
 @app.get("/api/config")
 async def config() -> dict[str, Any]:
-    return {"mode": settings.mode, "has_api_key": bool(settings.anthropic_api_key), "n8n": settings.n8n_enabled,
-            "phone": settings.phone_enabled, "oncall_name": settings.oncall_name,
-            "models": {a: settings.model_for(a) for a in ("MELCHIOR", "BALTHASAR", "CASPER")}}
+    return {"mode": settings.mode, "has_api_key": settings.has_llm, "provider": settings.provider,
+            "n8n": settings.n8n_enabled, "phone": settings.phone_enabled, "oncall_name": settings.oncall_name,
+            "models": {a: ":".join(settings.model_for(a)) for a in ("MELCHIOR", "BALTHASAR", "CASPER")}}
 
 
 @app.get("/api/scenarios")
@@ -76,9 +79,12 @@ async def start_incident(scenario_id: str, req: StartRequest) -> Incident:
     except FileNotFoundError:
         raise HTTPException(404, f"scenario {scenario_id} not found")
     mode = req.mode or settings.mode
-    if mode in ("live", "record") and not settings.anthropic_api_key:
-        raise HTTPException(400, "Live mode needs ANTHROPIC_API_KEY in .env. Use scripted mode instead.")
-    adapters = build_adapters(settings, scenario_id, mode=mode, models=req.models)
+    if mode in ("live", "record") and not settings.has_llm:
+        raise HTTPException(400, f"Live mode needs an API key for provider '{settings.provider}' in .env. Use scripted mode instead.")
+    try:
+        adapters = build_adapters(settings, scenario_id, mode=mode, models=req.models)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
     inc = Incident(scenario, settings, adapters, n8n, store=store, speed=req.speed, mode=mode)
     INCIDENTS[inc.id] = inc
     inc.start()
@@ -274,7 +280,7 @@ async def n8n_confirm(incident_id: str, decision_id: str, req: ConfirmRequest,
 
 # ====================================================================== ElevenLabs server tools
 class VoiceRequest(BaseModel):
-    incident_id: str
+    incident_id: str = ""  # optional: defaults to the incident currently waiting on a human
     topic: str = ""
     evidence_id: str = ""
     confirm_code: str = ""
@@ -285,7 +291,13 @@ class VoiceRequest(BaseModel):
 
 def voice_incident(req: VoiceRequest, secret: Optional[str], tool: str) -> Incident:
     require_secret(secret, settings.elevenlabs_tool_secret)
-    inc = get_incident(req.incident_id)
+    if req.incident_id and req.incident_id in INCIDENTS:
+        inc = INCIDENTS[req.incident_id]
+    else:
+        waiting = [i for i in INCIDENTS.values() if i.dossier is not None and not i.closed]
+        if not waiting:
+            raise HTTPException(404, "no incident is waiting for a human decision")
+        inc = waiting[-1]
     request = {k: v for k, v in req.model_dump(exclude={"confirm_code", "incident_id"}).items() if v}
     inc.bus.emit("call.tool", {"tool": tool, "request": request})
     return inc
@@ -339,3 +351,10 @@ async def post_call(payload: dict[str, Any], x_magi_secret: Optional[str] = Head
 async def shutdown() -> None:
     for inc in INCIDENTS.values():
         await inc.stop()
+
+
+# The built UI (npm run build --prefix frontend), so one URL serves the whole app. Mounted last so
+# every API, WebSocket and integration route above takes precedence.
+UI_DIST = Path(__file__).resolve().parents[2] / "frontend" / "dist"
+if UI_DIST.is_dir():
+    app.mount("/", StaticFiles(directory=UI_DIST, html=True), name="ui")

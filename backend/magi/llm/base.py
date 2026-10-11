@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Optional, Protocol, TypeVar
+from typing import Any, Awaitable, Callable, Optional, Protocol, TypeVar
 
 from pydantic import BaseModel
 
@@ -41,9 +41,15 @@ class LLMResult:
     detail: str = ""
 
 
+# Native tool calling: the adapter calls this with (tool name, arguments) and gets back the text
+# result. Adapters without native tools ignore it; agents then use structured tool_requests.
+ToolRunner = Callable[[str, dict], Awaitable[str]]
+
+
 class LLMAdapter(Protocol):
     name: str
 
     async def structured(
-        self, *, system: str, user: str, schema: type[T], ctx: PhaseContext, max_tokens: int = 4000
+        self, *, system: str, user: str, schema: type[T], ctx: PhaseContext, max_tokens: int = 4000,
+        tools: Optional[list[dict]] = None, tool_runner: Optional[ToolRunner] = None,
     ) -> LLMResult: ...
