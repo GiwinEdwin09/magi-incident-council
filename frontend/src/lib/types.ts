@@ -115,6 +115,14 @@ export type Dossier = {
   reason: string;
 };
 
+export type IncidentSummary = {
+  id: string;
+  title: string;
+  mode: string;
+  opened_at: string;
+  status: "running" | "resolved" | "stopped" | "interrupted" | string;
+};
+
 export type ScenarioInfo = {
   id: string;
   title: string;

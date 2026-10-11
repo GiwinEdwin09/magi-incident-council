@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../lib/api";
 import { useStore } from "../lib/store";
-import type { AppConfig, ScenarioInfo } from "../lib/types";
+import type { AppConfig, IncidentSummary, ScenarioInfo } from "../lib/types";
 import { simTime } from "../lib/types";
 
 export function TopBar({ tab, setTab }: { tab: string; setTab: (t: string) => void }) {
@@ -14,6 +14,8 @@ export function TopBar({ tab, setTab }: { tab: string; setTab: (t: string) => vo
   const [scenario, setScenario] = useState("s2_ghost_process");
   const [mode, setMode] = useState("scripted");
   const [error, setError] = useState<string | null>(null);
+  const [history, setHistory] = useState<IncidentSummary[]>([]);
+  const finished = !!view.resolved || !!view.ended;
 
   useEffect(() => {
     api.scenarios().then(setScenarios).catch((e) => setError(String(e)));
@@ -21,7 +23,18 @@ export function TopBar({ tab, setTab }: { tab: string; setTab: (t: string) => vo
       setConfig(c);
       setMode(c.mode === "live" ? "live" : "scripted");
     }).catch(() => setError("Backend not reachable on :8787. Start it with: cd backend && uv run uvicorn magi.main:app --port 8787"));
-  }, []);
+    // A refresh, or a link with #INC-XXXX, reopens that incident (live or from the saved log).
+    const fromUrl = () => decodeURIComponent(location.hash.slice(1));
+    if (fromUrl()) connect(fromUrl());
+    const onHash = () => fromUrl() && fromUrl() !== useStore.getState().incidentId && connect(fromUrl());
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, [connect]);
+
+  const refreshHistory = () => api.incidents().then(setHistory).catch(() => undefined);
+  useEffect(() => {
+    refreshHistory();
+  }, [incidentId, finished]);
 
   const start = async () => {
     setError(null);
@@ -39,8 +52,8 @@ export function TopBar({ tab, setTab }: { tab: string; setTab: (t: string) => vo
 
   const inject = (id: string) => incidentId && api.inject(incidentId, { injection_id: id }).catch((e) => setError(String(e)));
 
-  const alarm = !!view.escalation;
-  const status = view.resolved ? "RESOLVED" : view.escalation ? "ESCALATED" : view.dp ? "DELIBERATING" : incidentId ? "MONITORING" : "STANDBY";
+  const alarm = !!view.escalation && !finished;
+  const status = view.resolved ? "RESOLVED" : view.ended ? view.ended.reason.toUpperCase() : view.escalation ? "ESCALATED" : view.dp ? "DELIBERATING" : incidentId ? "MONITORING" : "STANDBY";
 
   return (
     <header className="border-b border-line bg-panel">
@@ -53,7 +66,7 @@ export function TopBar({ tab, setTab }: { tab: string; setTab: (t: string) => vo
 
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <span className={`display px-2 py-0.5 text-[13px] font-bold ${alarm ? "pulse-alarm bg-alarm text-white" : view.resolved ? "bg-ok text-black" : "bg-panel-2 text-amber"}`}>
+            <span className={`display px-2 py-0.5 text-[13px] font-bold ${alarm ? "pulse-alarm bg-alarm text-white" : view.resolved ? "bg-ok text-black" : view.ended ? "bg-panel-2 text-dim" : "bg-panel-2 text-amber"}`}>
               {status}
             </span>
             {view.incidentId && <span className="font-mono text-[13px] text-dim">{view.incidentId}</span>}
@@ -104,7 +117,21 @@ export function TopBar({ tab, setTab }: { tab: string; setTab: (t: string) => vo
           ▶ Start incident
         </button>
 
-        {incidentId && (
+        <label className="flex items-center gap-2 text-[13px] text-dim">
+          History
+          <select value={history.some((h) => h.id === incidentId) ? incidentId : ""} onFocus={refreshHistory}
+            onChange={(e) => e.target.value && connect(e.target.value)}
+            className="max-w-56 border border-line bg-panel-2 px-2 py-1 text-ink">
+            <option value="">{history.length ? "Open a past incident…" : "No incidents yet"}</option>
+            {history.map((h) => (
+              <option key={h.id} value={h.id}>
+                {h.id} · {h.status} · {new Date(h.opened_at).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })} · {h.title}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        {incidentId && !finished && (
           <>
             <span className="mx-1 h-5 w-px bg-line" />
             <button onClick={() => ctl(view.paused ? "resume" : "pause")} className="border border-line px-2 py-1 text-[13px] hover:border-amber">

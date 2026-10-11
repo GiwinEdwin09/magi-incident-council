@@ -23,6 +23,7 @@ export const useStore = create<Store>((set, get) => ({
   connect: (incidentId) => {
     get().disconnect();
     set({ view: initialView(), lastSeq: 0, incidentId, connected: false });
+    if (location.hash !== `#${incidentId}`) history.replaceState(null, "", `#${incidentId}`);
     const open = () => {
       const proto = location.protocol === "https:" ? "wss" : "ws";
       const ws = new WebSocket(`${proto}://${location.host}/ws/incidents/${incidentId}?since=${get().lastSeq}`);
@@ -30,6 +31,13 @@ export const useStore = create<Store>((set, get) => ({
       ws.onopen = () => set({ connected: true });
       ws.onmessage = (msg) => {
         const e = JSON.parse(msg.data) as MagiEvent;
+        if (e.type === "error") {
+          // Unknown incident (e.g. a stale link): stop reconnecting and go back to standby.
+          get().disconnect();
+          set({ incidentId: undefined });
+          history.replaceState(null, "", location.pathname);
+          return;
+        }
         if (!e.seq || e.seq <= get().lastSeq) return;
         set((s) => ({ view: reduce(s.view, e), lastSeq: e.seq }));
       };

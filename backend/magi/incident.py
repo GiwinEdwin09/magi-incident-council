@@ -494,36 +494,7 @@ class Incident:
             task.add_done_callback(self._background.discard)
 
     def record(self) -> str:
-        def t(s: float) -> str:
-            return f"T+{int(s // 60):02d}:{int(s % 60):02d}"
-
-        lines = [f"*{self.id} · {self.scenario.title}* · pages: {self.metrics['pages']}"]
-        for e in self.bus.events:
-            p = e.payload
-            if e.type == "proposal.created":
-                pr = p["proposal"]
-                lines.append(f"{t(e.sim_ts)} {e.agent} proposed {p['ref']} [{pr['tier']}]: {pr['draft']['title']}")
-            elif e.type == "proposal.versioned":
-                lines.append(f"{t(e.sim_ts)} {e.agent} amended {p['supersedes']} → {p['ref']}")
-            elif e.type == "evidence.assessed":
-                a = p["assessment"]
-                if a["verdict"] != "ACCEPT":
-                    lines.append(f"{t(e.sim_ts)} {e.agent} rated {a['evidence_id']} {a['verdict']} (credibility {a['credibility']:.2f})")
-            elif e.type == "position.updated" and p["position"].get("changed"):
-                pos = p["position"]
-                lines.append(f"{t(e.sim_ts)} {e.agent} changed {p.get('from')} → {pos['preferred_proposal_ref']} "
-                             f"({pos['change_cause']}{', FLAGGED' if 'conformity_risk' in p['flags'] else ''})")
-            elif e.type == "decision.made":
-                d = p["decision"]
-                lines.append(f"{t(e.sim_ts)} {d['id']} {d['outcome']} {d.get('proposal_ref') or ''}: {d['rule_applied']}")
-            elif e.type == "action.result":
-                lines.append(f"{t(e.sim_ts)} executed {p['action']} via {p['via']}")
-            elif e.type == "escalation.started":
-                lines.append(f"{t(e.sim_ts)} escalated: {p['dossier']['crux']}")
-            elif e.type == "human.ruling":
-                r = p["ruling"]
-                lines.append(f"{t(e.sim_ts)} ruling by {r['ruled_by']} via {r['via']}: option {r['option_key']} {r.get('conditions') or ''}")
-        return "\n".join(lines)
+        return build_record(self.id, self.scenario.title, self.metrics["pages"], [e.model_dump() for e in self.bus.events])
 
     def snapshot(self) -> dict[str, Any]:
         return {"id": self.id, "scenario_id": self.scenario.id, "title": self.scenario.title, "mode": self.mode,
@@ -538,3 +509,39 @@ def _opt(d: Dossier, key: str) -> str:
         return "not available"
     sup = ", ".join(s.title() for s in o.supporters) or "no agent"
     return f"{o.summary} Supported by {sup}. Main risk: {o.main_risk}"
+
+
+def build_record(incident_id: str, title: str, pages: Any, events: list[dict]) -> str:
+    """The decision record, built from the event log alone, so it also works for past incidents."""
+    def t(s: float) -> str:
+        return f"T+{int(s // 60):02d}:{int(s % 60):02d}"
+
+    lines = [f"*{incident_id} · {title}* · pages: {pages}"]
+    for e in events:
+        p, sim_ts, agent = e["payload"], e["sim_ts"], e["agent"]
+        if e["type"] == "proposal.created":
+            pr = p["proposal"]
+            lines.append(f"{t(sim_ts)} {agent} proposed {p['ref']} [{pr['tier']}]: {pr['draft']['title']}")
+        elif e["type"] == "proposal.versioned":
+            lines.append(f"{t(sim_ts)} {agent} amended {p['supersedes']} → {p['ref']}")
+        elif e["type"] == "evidence.assessed":
+            a = p["assessment"]
+            if a["verdict"] != "ACCEPT":
+                lines.append(f"{t(sim_ts)} {agent} rated {a['evidence_id']} {a['verdict']} (credibility {a['credibility']:.2f})")
+        elif e["type"] == "position.updated" and p["position"].get("changed"):
+            pos = p["position"]
+            lines.append(f"{t(sim_ts)} {agent} changed {p.get('from')} → {pos['preferred_proposal_ref']} "
+                         f"({pos['change_cause']}{', FLAGGED' if 'conformity_risk' in p['flags'] else ''})")
+        elif e["type"] == "decision.made":
+            d = p["decision"]
+            lines.append(f"{t(sim_ts)} {d['id']} {d['outcome']} {d.get('proposal_ref') or ''}: {d['rule_applied']}")
+        elif e["type"] == "action.result":
+            lines.append(f"{t(sim_ts)} executed {p['action']} via {p['via']}")
+        elif e["type"] == "escalation.started":
+            lines.append(f"{t(sim_ts)} escalated: {p['dossier']['crux']}")
+        elif e["type"] == "human.ruling":
+            r = p["ruling"]
+            lines.append(f"{t(sim_ts)} ruling by {r['ruled_by']} via {r['via']}: option {r['option_key']} {r.get('conditions') or ''}")
+        elif e["type"] == "incident.ended":
+            lines.append(f"{t(sim_ts)} incident {p['reason']}{': ' + p['detail'] if p.get('detail') else ''}")
+    return "\n".join(lines)

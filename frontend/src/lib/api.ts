@@ -1,4 +1,4 @@
-import type { AppConfig, ScenarioInfo } from "./types";
+import type { AppConfig, IncidentSummary, ScenarioInfo } from "./types";
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const r = await fetch(path, {
@@ -15,6 +15,7 @@ const post = <T>(path: string, body: unknown) => req<T>(path, { method: "POST", 
 export const api = {
   config: () => req<AppConfig>("/api/config"),
   scenarios: () => req<ScenarioInfo[]>("/api/scenarios"),
+  incidents: () => req<IncidentSummary[]>("/api/incidents"),
   start: (id: string, body: { speed?: number; mode?: string }) =>
     post<{ incident_id: string }>(`/api/scenarios/${id}/start`, body),
   inject: (incident: string, body: { injection_id?: string; content?: string; source?: string }) =>
