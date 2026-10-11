@@ -1,0 +1,94 @@
+@import "tailwindcss";
+
+/* Evangelion-inspired control-room palette. Function first: high contrast, large type,
+   color always paired with text so nothing relies on color alone. */
+@theme {
+  --color-bg: #05070a;
+  --color-panel: #0b0f14;
+  --color-panel-2: #111821;
+  --color-line: #1e2a36;
+  --color-line-strong: #2c3c4d;
+  --color-ink: #e6edf3;
+  --color-dim: #8b9bab;
+  --color-amber: #ff9f1c;
+  --color-alarm: #ff3b30;
+  --color-ok: #2bd97c;
+  --color-melchior: #22d3ee;
+  --color-balthasar: #fbbf24;
+  --color-casper: #e879f9;
+  --color-abstain: #6b7280;
+  --color-t0: #64748b;
+  --color-t1: #38bdf8;
+  --color-t2: #ff3b30;
+
+  --font-display: "Barlow Condensed", "Arial Narrow", system-ui, sans-serif;
+  --font-sans: "Inter", system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+}
+
+.display {
+  font-family: var(--font-display);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+/* Panel with a cut corner, like NERV terminal frames */
+.frame {
+  background: var(--color-panel);
+  border: 1px solid var(--color-line);
+  clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 0 100%);
+}
+
+.hex {
+  clip-path: polygon(12px 0, calc(100% - 12px) 0, 100% 50%, calc(100% - 12px) 100%, 12px 100%, 0 50%);
+}
+
+.hazard {
+  background: repeating-linear-gradient(-45deg, var(--color-alarm) 0 10px, #1a0503 10px 20px);
+}
+
+.scanlines::after {
+  content: "";
+  pointer-events: none;
+  position: fixed;
+  inset: 0;
+  background: repeating-linear-gradient(to bottom, rgba(255, 255, 255, 0.025) 0 1px, transparent 1px 3px);
+}
+
+@keyframes pulse-alarm {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(255, 59, 48, 0.55); }
+  50% { box-shadow: 0 0 0 6px rgba(255, 59, 48, 0); }
+}
+.pulse-alarm { animation: pulse-alarm 1.4s ease-in-out infinite; }
+
+@keyframes stamp {
+  0% { transform: scale(1.25); opacity: 0; }
+  100% { transform: scale(1); opacity: 1; }
+}
+.stamp { animation: stamp 160ms ease-out; }
+
+@keyframes blink { 50% { opacity: 0.35; } }
+.blink { animation: blink 1s step-end infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .pulse-alarm, .stamp, .blink { animation: none; }
+}
+
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-thumb { background: var(--color-line-strong); }
+::-webkit-scrollbar-track { background: transparent; }

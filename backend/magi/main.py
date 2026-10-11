@@ -1,0 +1,341 @@
+"""FastAPI app.
+
+/api/*            operator + UI endpoints (proxied by the Vite dev server)
+/ws/incidents/*   event stream
+/sim/*, /alerts, /confirm/*, /voice/*, /calls/*   integration endpoints for n8n and ElevenLabs
+"""
+
+from __future__ import annotations
+
+import asyncio
+import hmac
+from typing import Any, Optional
+
+from fastapi import FastAPI, Header, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+
+from magi.config import get_settings
+from magi.facilitator import certificate
+from magi.incident import Incident
+from magi.integrations.n8n import N8nClient
+from magi.llm import build_adapters
+from magi.models import ActionCall, HumanRuling, Param
+from magi.sim.feeds import ToolNotPermitted, tool_result
+from magi.sim.scenario import list_scenarios, load_scenario
+from magi.store import EventStore
+
+settings = get_settings()
+app = FastAPI(title="MAGI incident council")
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+
+store = EventStore(settings.db_path)
+n8n = N8nClient(settings)
+INCIDENTS: dict[str, Incident] = {}
+
+
+def get_incident(incident_id: str) -> Incident:
+    inc = INCIDENTS.get(incident_id)
+    if inc is None:
+        raise HTTPException(404, f"incident {incident_id} not found")
+    return inc
+
+
+def require_secret(provided: Optional[str], expected: str) -> None:
+    if expected and not hmac.compare_digest(provided or "", expected):
+        raise HTTPException(401, "bad secret")
+
+
+# ====================================================================== operator API
+class StartRequest(BaseModel):
+    speed: Optional[float] = None
+    mode: Optional[str] = None  # scripted | live | record | replay
+    models: Optional[dict[str, str]] = None
+
+
+@app.get("/healthz")
+async def healthz() -> dict[str, Any]:
+    return {"ok": True, "mode": settings.mode, "n8n": settings.n8n_enabled, "phone": settings.phone_enabled}
+
+
+@app.get("/api/config")
+async def config() -> dict[str, Any]:
+    return {"mode": settings.mode, "has_api_key": bool(settings.anthropic_api_key), "n8n": settings.n8n_enabled,
+            "phone": settings.phone_enabled, "oncall_name": settings.oncall_name,
+            "models": {a: settings.model_for(a) for a in ("MELCHIOR", "BALTHASAR", "CASPER")}}
+
+
+@app.get("/api/scenarios")
+async def scenarios() -> list[dict[str, Any]]:
+    return list_scenarios()
+
+
+async def start_incident(scenario_id: str, req: StartRequest) -> Incident:
+    try:
+        scenario = load_scenario(scenario_id)
+    except FileNotFoundError:
+        raise HTTPException(404, f"scenario {scenario_id} not found")
+    mode = req.mode or settings.mode
+    if mode in ("live", "record") and not settings.anthropic_api_key:
+        raise HTTPException(400, "Live mode needs ANTHROPIC_API_KEY in .env. Use scripted mode instead.")
+    adapters = build_adapters(settings, scenario_id, mode=mode, models=req.models)
+    inc = Incident(scenario, settings, adapters, n8n, store=store, speed=req.speed, mode=mode)
+    INCIDENTS[inc.id] = inc
+    inc.start()
+    return inc
+
+
+@app.post("/api/scenarios/{scenario_id}/start")
+async def start(scenario_id: str, req: StartRequest) -> dict[str, Any]:
+    inc = await start_incident(scenario_id, req)
+    return {"incident_id": inc.id}
+
+
+@app.get("/api/incidents")
+async def incidents() -> list[dict[str, Any]]:
+    return [{"id": i.id, "title": i.scenario.title, "closed": i.closed, "mode": i.mode} for i in INCIDENTS.values()]
+
+
+@app.get("/api/incidents/{incident_id}")
+async def incident(incident_id: str) -> dict[str, Any]:
+    return get_incident(incident_id).snapshot()
+
+
+@app.get("/api/incidents/{incident_id}/events")
+async def incident_events(incident_id: str, since: int = 0) -> list[dict[str, Any]]:
+    inc = INCIDENTS.get(incident_id)
+    if inc is None:
+        return store.load(incident_id)
+    return [e.model_dump() for e in inc.bus.since(since)]
+
+
+@app.get("/api/incidents/{incident_id}/record")
+async def incident_record(incident_id: str) -> dict[str, str]:
+    return {"markdown": get_incident(incident_id).record()}
+
+
+class InjectRequest(BaseModel):
+    injection_id: Optional[str] = None
+    content: str = ""
+    source: str = "operator"
+    visible_to: Optional[list[str]] = None
+    is_false: bool = False
+
+
+@app.post("/api/incidents/{incident_id}/inject")
+async def inject(incident_id: str, req: InjectRequest) -> dict[str, Any]:
+    inc = get_incident(incident_id)
+    if not req.injection_id and not req.content:
+        raise HTTPException(400, "injection_id or content required")
+    ev = inc.inject(req.injection_id, source=req.source, content=req.content, visible_to=req.visible_to,
+                    is_false=req.is_false)
+    return {"evidence_id": ev.id}
+
+
+class ControlRequest(BaseModel):
+    action: str  # pause | resume | speed | stop
+    speed: Optional[float] = None
+
+
+@app.post("/api/incidents/{incident_id}/control")
+async def control(incident_id: str, req: ControlRequest) -> dict[str, Any]:
+    inc = get_incident(incident_id)
+    if req.action == "pause":
+        inc.paused = True
+    elif req.action == "resume":
+        inc.paused = False
+    elif req.action == "speed" and req.speed:
+        inc.speed = max(0.5, min(60.0, req.speed))
+    elif req.action == "stop":
+        await inc.stop()
+    else:
+        raise HTTPException(400, "unknown action")
+    inc.bus.emit("incident.control", {"action": req.action, "speed": inc.speed, "paused": inc.paused})
+    return inc.snapshot()
+
+
+@app.post("/api/incidents/{incident_id}/ruling")
+async def ui_ruling(incident_id: str, ruling: HumanRuling) -> dict[str, Any]:
+    ok, msg = get_incident(incident_id).submit_ruling(ruling)
+    if not ok:
+        raise HTTPException(400, msg)
+    return {"ok": True, "message": msg}
+
+
+class InfoRequest(BaseModel):
+    text: str
+    by: str = "IC"
+
+
+@app.post("/api/incidents/{incident_id}/info")
+async def ui_info(incident_id: str, req: InfoRequest) -> dict[str, Any]:
+    ev = get_incident(incident_id).add_human_info(req.text, by=req.by, via="ui")
+    return {"evidence_id": ev.id}
+
+
+class UnsealRequest(BaseModel):
+    evidence_id: str
+    code: str
+
+
+@app.post("/api/incidents/{incident_id}/unseal")
+async def ui_unseal(incident_id: str, req: UnsealRequest) -> dict[str, Any]:
+    ok, content = get_incident(incident_id).unseal(req.evidence_id, req.code)
+    if not ok:
+        raise HTTPException(400, content)
+    return {"content": content}
+
+
+class ConfirmRequest(BaseModel):
+    approved: bool
+    by: str = "on-call"
+
+
+@app.post("/api/incidents/{incident_id}/confirm/{decision_id}")
+async def ui_confirm(incident_id: str, decision_id: str, req: ConfirmRequest) -> dict[str, Any]:
+    if not get_incident(incident_id).confirm_result(decision_id, req.approved, req.by):
+        raise HTTPException(409, "no pending confirmation")
+    return {"ok": True}
+
+
+# ====================================================================== event stream
+@app.websocket("/ws/incidents/{incident_id}")
+async def ws_incident(ws: WebSocket, incident_id: str, since: int = 0) -> None:
+    await ws.accept()
+    inc = INCIDENTS.get(incident_id)
+    if inc is None:
+        await ws.send_json({"type": "error", "payload": {"message": "incident not found"}})
+        await ws.close()
+        return
+    q = inc.bus.subscribe()
+    try:
+        for e in inc.bus.since(since):
+            await ws.send_json(e.model_dump())
+        while True:
+            e = await q.get()
+            await ws.send_json(e.model_dump())
+    except (WebSocketDisconnect, asyncio.CancelledError, RuntimeError):
+        pass
+    finally:
+        inc.bus.unsubscribe(q)
+
+
+# ====================================================================== n8n callbacks
+@app.post("/alerts")
+async def alerts(payload: dict[str, Any], x_magi_secret: Optional[str] = Header(None)) -> dict[str, Any]:
+    """n8n W1: a PagerDuty/Datadog-shaped alert opens an incident."""
+    require_secret(x_magi_secret, settings.n8n_shared_secret)
+    data = payload.get("event", {}).get("data", payload)
+    scenario_id = (data.get("custom_details") or {}).get("scenario_id") or payload.get("scenario_id")
+    if not scenario_id:
+        raise HTTPException(400, "scenario_id required (custom_details.scenario_id)")
+    inc = await start_incident(scenario_id, StartRequest())
+    return {"incident_id": inc.id}
+
+
+@app.post("/sim/{incident_id}/tool")
+async def sim_tool(incident_id: str, payload: dict[str, Any], x_magi_secret: Optional[str] = Header(None)) -> dict[str, Any]:
+    """n8n W2 branch target. In production this branch would call Datadog/Splunk/CRM instead."""
+    require_secret(x_magi_secret, settings.n8n_shared_secret)
+    inc = get_incident(incident_id)
+    agent, tool = payload.get("agent", ""), payload.get("tool", "")
+    expected = getattr(settings, f"agent_token_{agent.lower()}", "")
+    if expected and not hmac.compare_digest(payload.get("token", ""), expected):
+        raise HTTPException(403, "agent token mismatch")
+    try:
+        return {"result": tool_result(inc.scenario, inc.state.world.state, agent, tool, payload.get("params") or {})}
+    except ToolNotPermitted as e:
+        raise HTTPException(403, str(e))
+
+
+@app.post("/sim/{incident_id}/apply")
+async def sim_apply(incident_id: str, payload: dict[str, Any], x_magi_secret: Optional[str] = Header(None)) -> dict[str, Any]:
+    """n8n W3 executor target: apply one action, only with a valid decision certificate."""
+    require_secret(x_magi_secret, settings.n8n_shared_secret)
+    inc = get_incident(incident_id)
+    d = next((x for x in inc.state.decisions if x.id == payload.get("decision_id")), None)
+    if d is None or not certificate.verify(settings.magi_signing_key, payload.get("signature", ""), d.id,
+                                           d.proposal_hash or "", d.outcome.value):
+        inc.bus.emit("action.rejected", {"reason": "invalid certificate", "payload": payload})
+        raise HTTPException(401, "invalid decision certificate")
+    a = payload.get("action") or {}
+    action = ActionCall(action_id=a.get("action_id", ""), params=[Param(**p) for p in a.get("params", [])])
+    if action.label() not in {x.label() for x in d.actions}:
+        raise HTTPException(400, "action not part of this decision")
+    return {"changes": inc.apply_action(d.id, action, via="n8n")}
+
+
+@app.post("/confirm/{incident_id}/{decision_id}")
+async def n8n_confirm(incident_id: str, decision_id: str, req: ConfirmRequest,
+                      x_magi_secret: Optional[str] = Header(None)) -> dict[str, Any]:
+    require_secret(x_magi_secret, settings.n8n_shared_secret)
+    return await ui_confirm(incident_id, decision_id, req)
+
+
+# ====================================================================== ElevenLabs server tools
+class VoiceRequest(BaseModel):
+    incident_id: str
+    topic: str = ""
+    evidence_id: str = ""
+    confirm_code: str = ""
+    text: str = ""
+    option_key: str = ""
+    conditions: str = ""
+
+
+def voice_incident(req: VoiceRequest, secret: Optional[str], tool: str) -> Incident:
+    require_secret(secret, settings.elevenlabs_tool_secret)
+    inc = get_incident(req.incident_id)
+    request = {k: v for k, v in req.model_dump(exclude={"confirm_code", "incident_id"}).items() if v}
+    inc.bus.emit("call.tool", {"tool": tool, "request": request})
+    return inc
+
+
+@app.post("/voice/detail")
+async def voice_detail(req: VoiceRequest, x_magi_secret: Optional[str] = Header(None)) -> dict[str, str]:
+    inc = voice_incident(req, x_magi_secret, "get_detail")
+    return {"answer": inc.detail(req.topic)}
+
+
+@app.post("/voice/unseal")
+async def voice_unseal(req: VoiceRequest, x_magi_secret: Optional[str] = Header(None)) -> dict[str, str]:
+    inc = voice_incident(req, x_magi_secret, "unseal_evidence")
+    ok, content = inc.unseal(req.evidence_id, req.confirm_code)
+    return {"answer": content if ok else f"Not unsealed: {content}"}
+
+
+@app.post("/voice/add-info")
+async def voice_add_info(req: VoiceRequest, x_magi_secret: Optional[str] = Header(None)) -> dict[str, str]:
+    inc = voice_incident(req, x_magi_secret, "add_information")
+    inc.add_human_info(req.text, by=settings.oncall_name, via="voice")
+    return {"answer": "Got it. The agents are re-deliberating with that information."}
+
+
+@app.post("/voice/ruling")
+async def voice_ruling(req: VoiceRequest, x_magi_secret: Optional[str] = Header(None)) -> dict[str, str]:
+    inc = voice_incident(req, x_magi_secret, "submit_ruling")
+    key = req.option_key.strip().upper()
+    if key not in {"A", "B", "C", "CUSTOM"}:
+        return {"answer": "Please choose option A, B, C, or give a custom instruction."}
+    ruling = HumanRuling(option_key=key, conditions=req.conditions, ruled_by=settings.oncall_name, via="voice",
+                         confirm_code=req.confirm_code)
+    ok, msg = inc.submit_ruling(ruling)
+    return {"answer": msg}
+
+
+@app.post("/calls/post-call")
+async def post_call(payload: dict[str, Any], x_magi_secret: Optional[str] = Header(None)) -> dict[str, Any]:
+    """n8n W6 forwards the ElevenLabs post-call webhook (after verifying its HMAC)."""
+    require_secret(x_magi_secret, settings.n8n_shared_secret)
+    incident_id = payload.get("incident_id") or (payload.get("dynamic_variables") or {}).get("incident_id")
+    inc = INCIDENTS.get(incident_id or "")
+    if inc:
+        inc.bus.emit("call.status", {"status": "ended", "summary": payload.get("summary"),
+                                     "transcript": payload.get("transcript")})
+    return {"ok": True}
+
+
+@app.on_event("shutdown")
+async def shutdown() -> None:
+    for inc in INCIDENTS.values():
+        await inc.stop()

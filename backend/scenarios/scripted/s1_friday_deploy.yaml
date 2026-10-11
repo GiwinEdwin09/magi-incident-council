@@ -1,0 +1,168 @@
+# Scripted agent outputs for S1. Used offline, in tests, and for UI development.
+MELCHIOR:
+  PROPOSE:
+  - when:
+      dp: DP1
+    output:
+      assessment: 'Regression from v2.31: the NullPointerException in PriceFormatter started at rollout and explains all new 5xx (E-2, E-3). v2.30 has no migrations, so rollback is safe.'
+      key_claims:
+      - text: All new 5xx come from a PriceFormatter bug introduced in v2.31.
+        evidence_ids:
+        - E-2
+        - E-3
+        confidence: 0.93
+      proposal:
+        title: Roll checkout-api back to v2.30
+        actions:
+        - action_id: deploy.rollback
+          params:
+          - name: service
+            value: checkout-api
+          - name: to_version
+            value: '2.30'
+        rationale: Removes the faulty code path; average recovery 2 minutes per RB-3.
+        expected_outcome: p99 under 600ms and 5xx under 0.5% within 2 minutes.
+        risks:
+        - Loses the v2.31 features until a fix ships.
+      confidence: 0.9
+      insufficient_info: false
+      info_needed: []
+      tool_requests: []
+  DISSENT:
+  - when: {}
+    output:
+      target_ref: '{{leading}}'
+      strongest_case_against: If the bug is data-triggered rather than code-triggered, rollback may not stop it, and we lose time we could spend on a targeted hotfix.
+      failure_scenario: Errors continue after rollback because a bad price record, not v2.31, is the trigger.
+  VOTE:
+  - when: {}
+    output:
+      proposal_ref: '{{ballot_ref}}'
+      proposal_hash: '{{ballot_hash}}'
+      choice: ACCEPT
+      reason: Reversible, matches the evidence (E-2, E-3), restores checkout fastest.
+      would_change_if: Errors were present before the v2.31 rollout.
+      position:
+        preferred_proposal_ref: '{{ballot_ref}}'
+        confidence: 0.9
+        changed: false
+        change_cause: NO_CHANGE
+        cited_ids:
+        - E-3
+  ASSESS:
+  - when: {}
+    output:
+      evidence_id: '{{target}}'
+      source_reliability: 0.85
+      plausibility: 0.8
+      corroborating_ids: []
+      contradicting_ids: []
+      credibility: 0.8
+      verdict: ACCEPT
+      reason: Consistent with what I see.
+BALTHASAR:
+  PROPOSE:
+  - when:
+      dp: DP1
+    output:
+      assessment: No security signals in the checkout tier and replication is healthy (E-4). Nothing in my mandate argues against a code rollback.
+      key_claims:
+      - text: No security events or data-integrity issues in the checkout tier.
+        evidence_ids:
+        - E-4
+        confidence: 0.88
+      proposal:
+        title: Roll back checkout-api to v2.30
+        actions:
+        - action_id: deploy.rollback
+          params:
+          - name: service
+            value: checkout-api
+          - name: to_version
+            value: '2.30'
+        rationale: Reversible and touches no security control or data store.
+        expected_outcome: Service recovers with no integrity impact.
+        risks: []
+      confidence: 0.8
+      insufficient_info: false
+      info_needed: []
+      tool_requests: []
+  VOTE:
+  - when: {}
+    output:
+      proposal_ref: '{{ballot_ref}}'
+      proposal_hash: '{{ballot_hash}}'
+      choice: ACCEPT
+      reason: No security or integrity concern (E-4); rollback is reversible.
+      would_change_if: A security signal appeared in the checkout tier.
+      position:
+        preferred_proposal_ref: '{{ballot_ref}}'
+        confidence: 0.85
+        changed: false
+        change_cause: NO_CHANGE
+        cited_ids:
+        - E-4
+  ASSESS:
+  - when: {}
+    output:
+      evidence_id: '{{target}}'
+      source_reliability: 0.85
+      plausibility: 0.8
+      corroborating_ids: []
+      contradicting_ids: []
+      credibility: 0.8
+      verdict: ACCEPT
+      reason: Consistent with what I see.
+CASPER:
+  PROPOSE:
+  - when:
+      dp: DP1
+    output:
+      assessment: Peak Friday checkout with ~$41k/min at risk (E-5). The fastest reversible fix protects customers best; no notification obligations.
+      key_claims:
+      - text: About $41k per minute of orders are at risk at Friday peak.
+        evidence_ids:
+        - E-5
+        confidence: 0.85
+      proposal:
+        title: Roll back now to stop failed checkouts
+        actions:
+        - action_id: deploy.rollback
+          params:
+          - name: service
+            value: checkout-api
+          - name: to_version
+            value: '2.30'
+        rationale: Every minute costs real orders; rollback is the fastest reversible fix.
+        expected_outcome: Checkout recovers within minutes.
+        risks: []
+      confidence: 0.85
+      insufficient_info: false
+      info_needed: []
+      tool_requests: []
+  VOTE:
+  - when: {}
+    output:
+      proposal_ref: '{{ballot_ref}}'
+      proposal_hash: '{{ballot_hash}}'
+      choice: ACCEPT
+      reason: Fastest reversible way to stop failed checkouts at peak (E-5).
+      would_change_if: Rollback would lose customer data.
+      position:
+        preferred_proposal_ref: '{{ballot_ref}}'
+        confidence: 0.85
+        changed: false
+        change_cause: NO_CHANGE
+        cited_ids:
+        - E-5
+  ASSESS:
+  - when: {}
+    output:
+      evidence_id: '{{target}}'
+      source_reliability: 0.85
+      plausibility: 0.8
+      corroborating_ids: []
+      contradicting_ids: []
+      credibility: 0.8
+      verdict: ACCEPT
+      reason: Consistent with what I see.
