@@ -4,6 +4,8 @@ An incident council of three AI agents with competing mandates (restore service,
 
 Built for the UCSC AI Hackathon (Oct 10–11, 2026), Cisco Outshift / AGNTCY Cloud Track, Level 3 "Build a Collective Intelligence."
 
+**Live demo:** https://magi-incident-council.onrender.com (pick a scenario, choose *Scripted (offline)* to run it at no cost, and press **Start incident**). Past runs are under **History**.
+
 ## Run it (no API keys needed)
 
 Two terminals from the repo root:
@@ -27,7 +29,21 @@ Tests:
 cd backend && uv run pytest -q
 ```
 
-### Share it on one public URL
+### Deploy on Render
+
+The live demo runs as a single Render **web service** (Python 3, Starter instance, one instance only, since live incidents are held in memory):
+
+| Setting | Value |
+|---|---|
+| Build command | `pip install uv && npm ci --prefix frontend && npm run build --prefix frontend && cd backend && uv sync --frozen` |
+| Start command | `cd backend && uv run uvicorn magi.main:app --host 0.0.0.0 --port $PORT` |
+| Health check path | `/healthz` |
+| Disk | 1 GB mounted at `/data`, with `DB_PATH=/data/magi.sqlite` so incident history survives deploys |
+| Environment | the variables from `.env.example` that you use, plus `PUBLIC_BACKEND_URL=https://<service>.onrender.com`. Leave out variables you'd set empty (an empty number fails startup), and the laptop-only ones (`NGROK_*`, `N8N_API_KEY`, `SLACK_BOT_TOKEN`) |
+
+After the first deploy, set the same `PUBLIC_BACKEND_URL` in your local `.env` and run `python3 n8n/deploy.py`, so the n8n workflows call the Render URL. A redeploy ends any incident in progress; it shows as *interrupted* in History. Turn Auto-Deploy off during a demo if you don't want merges to restart the server.
+
+### Or share it from your laptop
 
 Build the UI once and the backend serves it at `/`, next to the API:
 
@@ -52,6 +68,21 @@ scripts/tunnel.sh
 | **Checkout errors after Friday deploy** (`s1_friday_deploy`) | All three agents independently propose the same rollback. It is reversible (T1), passes 3/3, n8n executes it, and **nobody is paged**. |
 | **Payments failing on a possibly compromised database** (`s2_ghost_process`) | DP1: three different plans; the reversible containment steps (memory snapshot, egress block, breach assessment) pass 3/3. DP2: the rankings form a cycle, BALTHASAR vetoes the restart, and two written policies collide (SEC-4: isolate within 15 min vs CUS-2: no knowing loss of payment writes), so the council **escalates to a human** with the crux. Use **Inject: Pentest rumor** to watch the agents verify and reject false evidence. In the escalation screen, either rule A/B/C (code is in #incident) or add information (e.g. "I approve the write loss") and watch the council re-deliberate. |
 
+## Running a scenario: what you'll be asked to do
+
+| Scenario | Your part |
+|---|---|
+| S1 | Nothing. It resolves on its own; #incident in Slack gets the updates and the decision record. |
+| S2 | After the first decision, press **Inject: Pentest rumor** (optional). At DP2 the council escalates: Slack #incident posts the crux and a **3-digit confirmation code**, and MAGI phones `ONCALL_PHONE`. On a Twilio trial number, press any key when the trial message plays. On the call you can ask for details, say "unseal S-1, code ###", add information, or say "go with option A, code ###" and then "confirm". Without a phone, use the escalation panel in the UI. If the council then agrees on an irreversible (T2) action, approve or deny it in Slack within 2 minutes (no answer = deny). |
+
+## Incident history
+
+Every event is written to an append-only SQLite log (`DB_PATH`). Live incidents run in memory; the log is what survives a restart:
+
+- **History** in the top bar lists past incidents with their status: *running*, *resolved*, *stopped*, or *interrupted*.
+- The page URL ends in `#INC-XXXX`, so a refresh or a shared link reopens that incident, replayed from the log, with its decision record.
+- On startup, any incident a restart cut off is closed as *interrupted*. Finished incidents are read-only.
+
 ## How it decides
 
 - **No chair.** A code-only Facilitator routes messages, enforces visibility, computes tiers, counts votes and applies the rules. It never picks a winner.
@@ -72,8 +103,9 @@ backend/            FastAPI + asyncio council engine (Python 3.12, uv)
   scenarios/        incident scenarios + scripted agent outputs
   tests/            invariants: need-to-know, sealed redaction, decision rules, end-to-end scenarios
 frontend/           React + Vite + Tailwind control room (pure function of the event log)
-n8n/                importable workflows + setup guide
-elevenlabs/         voice agent prompt and server-tool definitions
+n8n/                workflow builder, one-command deploy (deploy.py), setup guide
+elevenlabs/         voice agent prompt; setup_tools.py creates and attaches the four voice tools
+scripts/tunnel.sh   expose a local backend (ngrok or cloudflared) and repoint n8n at it
 MAGI_BUILD_PLAN.md  the full build plan
 reports/, research_notes/   competitive landscape research
 ```
@@ -86,10 +118,12 @@ reports/, research_notes/   competitive landscape research
 | Scenario engine, S1 + S2 with scripted agents | ✅ |
 | Control-room UI (evidence, agents, ballot, proposals, log, escalation, confirm, decision record) | ✅ |
 | Integration endpoints for n8n (`/alerts`, `/sim/*`, `/confirm/*`) and ElevenLabs (`/voice/*`) | ✅ built, local fallback when not configured |
-| Live LLM mode (OpenAI-compatible or Claude) | ⚠️ implemented and unit-tested against a fake server; first real run pending an API key |
-| n8n workflows (notify, alert intake, tool gateway, executor, T2 confirm, escalation call, post-call, decision record) | ✅ deployed with `python3 n8n/deploy.py` and tested end to end on n8n Cloud (S1 + S2 with zero fallbacks); guide in `n8n/README.md`. Escalation-call workflow waits for an ElevenLabs key |
-| ElevenLabs agent + Twilio number | ⏳ to configure (see `elevenlabs/README.md`) |
+| Live LLM mode (OpenAI Responses API with native tool calls, OpenAI-compatible servers, or Claude) | ✅ run live on S1 |
+| n8n workflows (notify, alert intake, tool gateway, executor, T2 confirm, escalation call, post-call, decision record, voice tool relay) | ✅ deployed with `python3 n8n/deploy.py`, tested end to end on n8n Cloud with zero fallbacks; guide in `n8n/README.md` |
+| ElevenLabs phone escalation (Twilio number, four voice tools) | ✅ tested on a real call: unseal by code, add information by voice, council re-deliberates, T2 approved in Slack. `submit_ruling` by voice not yet exercised |
+| Hosting | ✅ Render web service with a persistent disk; incident history survives deploys |
 | Evaluation harness and postmortem replay scenarios | ⏳ next (plan §15) |
+| ElevenLabs post-call summary webhook (workspace setting) | ⏳ to set: `https://<n8n>/webhook/magi/post-call` |
 | AGNTCY / Brev stretch goals | ⏳ |
 
 ## Research
