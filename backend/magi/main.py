@@ -20,7 +20,7 @@ from pydantic import BaseModel
 
 from magi.config import get_settings
 from magi.facilitator import certificate
-from magi.incident import Incident
+from magi.incident import Incident, build_record
 from magi.integrations.n8n import N8nClient
 from magi.llm import build_adapters
 from magi.models import ActionCall, HumanRuling, Param
@@ -33,6 +33,8 @@ app = FastAPI(title="MAGI incident council")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 store = EventStore(settings.db_path)
+# Nothing is live at startup, so any incident still open in the log was cut off by a restart.
+store.mark_interrupted("The MAGI server restarted while this incident was running.")
 n8n = N8nClient(settings)
 INCIDENTS: dict[str, Incident] = {}
 
@@ -99,7 +101,8 @@ async def start(scenario_id: str, req: StartRequest) -> dict[str, Any]:
 
 @app.get("/api/incidents")
 async def incidents() -> list[dict[str, Any]]:
-    return [{"id": i.id, "title": i.scenario.title, "closed": i.closed, "mode": i.mode} for i in INCIDENTS.values()]
+    """Newest first, from the event log, so incidents from before a restart are listed too."""
+    return store.incidents()
 
 
 @app.get("/api/incidents/{incident_id}")
@@ -117,7 +120,15 @@ async def incident_events(incident_id: str, since: int = 0) -> list[dict[str, An
 
 @app.get("/api/incidents/{incident_id}/record")
 async def incident_record(incident_id: str) -> dict[str, str]:
-    return {"markdown": get_incident(incident_id).record()}
+    inc = INCIDENTS.get(incident_id)
+    if inc is not None:
+        return {"markdown": inc.record()}
+    events = store.load(incident_id)
+    if not events:
+        raise HTTPException(404, f"incident {incident_id} not found")
+    title = next((e["payload"].get("title", "") for e in events if e["type"] == "incident.opened"), "")
+    pages = next((e["payload"].get("pages") for e in events if e["type"] == "incident.resolved"), "n/a")
+    return {"markdown": build_record(incident_id, title, pages, events)}
 
 
 class InjectRequest(BaseModel):
@@ -157,6 +168,8 @@ async def control(incident_id: str, req: ControlRequest) -> dict[str, Any]:
     else:
         raise HTTPException(400, "unknown action")
     inc.bus.emit("incident.control", {"action": req.action, "speed": inc.speed, "paused": inc.paused})
+    if req.action == "stop":
+        inc.bus.emit("incident.ended", {"reason": "stopped", "detail": "Stopped by the operator."})
     return inc.snapshot()
 
 
@@ -210,9 +223,19 @@ async def ws_incident(ws: WebSocket, incident_id: str, since: int = 0) -> None:
     await ws.accept()
     inc = INCIDENTS.get(incident_id)
     if inc is None:
-        await ws.send_json({"type": "error", "payload": {"message": "incident not found"}})
-        await ws.close()
-        return
+        # A past incident: replay its log, then hold the socket open so the client doesn't reconnect-loop.
+        events = [e for e in store.load(incident_id) if e["seq"] > since]
+        if not events and since == 0:
+            await ws.send_json({"type": "error", "payload": {"message": "incident not found"}})
+            await ws.close()
+            return
+        try:
+            for e in events:
+                await ws.send_json(e)
+            while True:
+                await ws.receive_text()
+        except (WebSocketDisconnect, asyncio.CancelledError, RuntimeError):
+            return
     q = inc.bus.subscribe()
     try:
         for e in inc.bus.since(since):

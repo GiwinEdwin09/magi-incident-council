@@ -81,6 +81,7 @@ export type View = {
   slack: { seq: number; text: string; kind: string; via: string; sim_ts: number }[];
   world?: Record<string, any>;
   resolved?: Record<string, any>;
+  ended?: { reason: string; detail?: string };
   errors: string[];
 };
 
@@ -377,6 +378,13 @@ export function reduce(v: View, e: MagiEvent): View {
     case "council.error":
       v.errors = [...v.errors, p.error];
       log("error", `Council error: ${p.error}`, "alarm");
+      break;
+
+    case "incident.ended":
+      v.ended = { reason: p.reason, detail: p.detail };
+      v.escalation = null; // nothing left to rule on or approve
+      v.confirm = null;
+      log("incident", `Incident ${p.reason}${p.detail ? `: ${p.detail}` : ""}`, "warn");
       break;
 
     case "incident.resolved":
