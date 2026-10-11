@@ -1,0 +1,104 @@
+{
+  "name": "MAGI 5 · Escalation call",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "magi/escalate",
+        "responseMode": "responseNode",
+        "options": {},
+        "authentication": "headerAuth"
+      },
+      "id": "afea9561-51e9-54a7-8b4b-9735fbca3d3e",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "acc22771-8756-5680-8167-6177671fc36b",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "magiSecretCred01",
+          "name": "MAGI shared secret"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.elevenlabs.io/v1/convai/twilio/outbound-call",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ agent_id: $json.body.agent_id, agent_phone_number_id: $json.body.agent_phone_number_id, to_number: $json.body.to_number, conversation_initiation_client_data: { dynamic_variables: $json.body.dynamic_variables } }) }}",
+        "options": {
+          "timeout": 20000
+        },
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth"
+      },
+      "id": "e76a84a7-9597-5bab-ae9e-cf0b2322d653",
+      "name": "Call on-call (ElevenLabs)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        260,
+        0
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "magiElevenCred01",
+          "name": "ElevenLabs API key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ conversation_id: $json.conversation_id, callSid: $json.callSid }) }}",
+        "options": {}
+      },
+      "id": "566c04e2-8da9-534b-a5eb-61ec1ba8ba51",
+      "name": "Respond to MAGI",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        520,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Call on-call (ElevenLabs)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call on-call (ElevenLabs)": {
+      "main": [
+        [
+          {
+            "node": "Respond to MAGI",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false
+  }
+}

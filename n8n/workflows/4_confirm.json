@@ -1,0 +1,137 @@
+{
+  "name": "MAGI 4 · T2 confirmation",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "magi/confirm",
+        "responseMode": "onReceived",
+        "options": {},
+        "authentication": "headerAuth"
+      },
+      "id": "3e32fb55-9626-5690-9136-c1de92bd98b1",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "cc245b52-c141-5580-a74d-055eaa49aabd",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "magiSecretCred01",
+          "name": "MAGI shared secret"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "sendAndWait",
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "#incident",
+          "mode": "name"
+        },
+        "message": "=🟠 *Confirm irreversible action* for {{ $json.body.incident_id }}\n{{ $json.body.proposal.draft.title }} ({{ $json.body.proposal.id }}@{{ $json.body.proposal.version }}, tier {{ $json.body.proposal.tier }})\nActions: {{ $json.body.proposal.draft.actions.map(a => a.action_id).join(', ') }}\nAll three agents voted ACCEPT. No answer in 2 minutes counts as deny.",
+        "approvalOptions": {
+          "values": {
+            "approvalType": "double",
+            "approveLabel": "Approve",
+            "disapproveLabel": "Deny"
+          }
+        },
+        "options": {
+          "limitWaitTime": {
+            "values": {
+              "limitType": "afterTimeInterval",
+              "resumeAmount": 2,
+              "resumeUnit": "minutes"
+            }
+          }
+        }
+      },
+      "id": "e3af1f2c-6c4f-5302-b595-f630ee67edfc",
+      "name": "Ask on-call in Slack",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.3,
+      "position": [
+        260,
+        0
+      ],
+      "credentials": {
+        "slackApi": {
+          "id": "magiSlackCred001",
+          "name": "Slack (MAGI bot)"
+        }
+      },
+      "webhookId": "0b6fab08-4bdc-5026-90db-23f2c85a3812"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Webhook').first().json.body.callback }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ approved: $json.data ? $json.data.approved === true : false, by: 'Slack' }) }}",
+        "options": {
+          "timeout": 10000,
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        },
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth"
+      },
+      "id": "b808c542-2000-5dc6-b183-0dda95ae30cb",
+      "name": "Send answer to MAGI",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        520,
+        0
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "magiSecretCred01",
+          "name": "MAGI shared secret"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Ask on-call in Slack",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ask on-call in Slack": {
+      "main": [
+        [
+          {
+            "node": "Send answer to MAGI",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false
+  }
+}

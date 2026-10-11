@@ -1,0 +1,130 @@
+{
+  "name": "MAGI 3 · Action executor",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "magi/execute",
+        "responseMode": "responseNode",
+        "options": {},
+        "authentication": "headerAuth"
+      },
+      "id": "15427966-c4e8-59f6-8fe6-bd7462333629",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "5c1e04b8-7b4b-53a2-8431-06d5357f5617",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "magiSecretCred01",
+          "name": "MAGI shared secret"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "body.decision.actions",
+        "include": "noOtherFields",
+        "options": {}
+      },
+      "id": "7f1efa35-0e37-5d7e-876c-6516a154c22b",
+      "name": "One item per action",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        260,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Webhook').first().json.body.backend_url }}/sim/{{ $('Webhook').first().json.body.incident_id }}/apply",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ decision_id: $('Webhook').first().json.body.decision.id, signature: $('Webhook').first().json.body.signature, action: { action_id: $json.action_id, params: $json.params } }) }}",
+        "options": {
+          "timeout": 10000
+        },
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth"
+      },
+      "id": "59bfbc60-041f-5a65-8b73-a457860865bf",
+      "name": "Apply action",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        520,
+        0
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "magiSecretCred01",
+          "name": "MAGI shared secret"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ applied: $input.all().map(i => i.json.changes) }) }}",
+        "options": {}
+      },
+      "id": "a9bd2a67-4b0d-5693-b19c-b19b4c2812f8",
+      "name": "Respond to MAGI",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        780,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "One item per action",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "One item per action": {
+      "main": [
+        [
+          {
+            "node": "Apply action",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Apply action": {
+      "main": [
+        [
+          {
+            "node": "Respond to MAGI",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false
+  }
+}

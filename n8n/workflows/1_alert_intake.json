@@ -1,0 +1,104 @@
+{
+  "name": "MAGI 1 · Alert intake",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "magi/alert",
+        "responseMode": "responseNode",
+        "options": {},
+        "authentication": "headerAuth"
+      },
+      "id": "f295fc86-733c-5cc6-9f64-f55a9314783d",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "79343e2a-f5ca-5803-a0b6-b2cd0c23bf94",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "magiSecretCred01",
+          "name": "MAGI shared secret"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://YOUR-MAGI-BACKEND/alerts",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.body) }}",
+        "options": {
+          "timeout": 10000
+        },
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth"
+      },
+      "id": "6ddd5d3a-dcc9-52d1-ac41-94ecdb9fbad3",
+      "name": "Open incident in MAGI",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        260,
+        0
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "magiSecretCred01",
+          "name": "MAGI shared secret"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "id": "428dc3c3-ea2d-5128-9eea-3156079293a5",
+      "name": "Respond to MAGI",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        520,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Open incident in MAGI",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Open incident in MAGI": {
+      "main": [
+        [
+          {
+            "node": "Respond to MAGI",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false
+  }
+}

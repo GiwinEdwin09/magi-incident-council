@@ -40,7 +40,7 @@ class Settings(BaseSettings):
     agent_token_casper: str = ""
 
     # Integrations (empty = local fallback)
-    public_backend_url: str = "http://localhost:8787"
+    public_backend_url: str = "http://127.0.0.1:8787"
     n8n_base_url: str = ""
     elevenlabs_api_key: str = ""
     elevenlabs_agent_id: str = ""
