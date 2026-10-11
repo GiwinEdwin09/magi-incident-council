@@ -14,14 +14,26 @@ class Settings(BaseSettings):
         env_file=(REPO_DIR / ".env", BACKEND_DIR / ".env"), extra="ignore"
     )
 
-    # LLM
+    # LLM. LLM_PROVIDER picks the default provider; MODEL_<AGENT> can override per agent with
+    # "provider:model" (e.g. "anthropic:claude-opus-5-5") to mix model families.
+    llm_provider: str = "auto"  # auto | openai | anthropic
+    openai_api_key: str = ""
+    openai_base_url: str = ""  # empty = api.openai.com; set for any OpenAI-compatible server
+    openai_model: str = ""
+    openai_reasoning_effort: str = ""  # optional, only for models that support it
     anthropic_api_key: str = ""
-    model_melchior: str = "claude-opus-5-5"
-    model_balthasar: str = "claude-opus-5-5"
-    model_casper: str = "claude-opus-5-5"
-    model_scribe: str = "claude-opus-5-5"
-    effort_default: str = "low"
-    llm_timeout_s: float = 45.0
+    anthropic_model: str = "claude-opus-5-5"
+    model_melchior: str = ""
+    model_balthasar: str = ""
+    model_casper: str = ""
+    model_scribe: str = ""
+    effort_default: str = "low"  # Anthropic effort
+    llm_timeout_s: float = 90.0
+    # Reasoning models spend output tokens on hidden reasoning, so phase caps are raised to this floor.
+    llm_min_output_tokens: int = 32000
+    llm_max_tool_calls: int = 4  # native tool calls per agent per phase (official OpenAI only)
+    llm_price_in_per_mtok: float = 0.0  # USD per million input tokens, for the cost readout (0 = unknown)
+    llm_price_out_per_mtok: float = 0.0
 
     # Modes: scripted (no API calls) | live | record | replay
     magi_mode: str = "auto"
@@ -54,10 +66,20 @@ class Settings(BaseSettings):
     scenarios_dir: str = str(BACKEND_DIR / "scenarios")
 
     @property
+    def provider(self) -> str:
+        if self.llm_provider != "auto":
+            return self.llm_provider
+        return "openai" if self.openai_api_key else "anthropic"
+
+    @property
+    def has_llm(self) -> bool:
+        return bool(self.openai_api_key if self.provider == "openai" else self.anthropic_api_key)
+
+    @property
     def mode(self) -> str:
         if self.magi_mode != "auto":
             return self.magi_mode
-        return "live" if self.anthropic_api_key else "scripted"
+        return "live" if self.has_llm else "scripted"
 
     @property
     def n8n_enabled(self) -> bool:
@@ -72,12 +94,16 @@ class Settings(BaseSettings):
             and self.oncall_phone
         )
 
-    def model_for(self, agent: str) -> str:
-        return {
-            "MELCHIOR": self.model_melchior,
-            "BALTHASAR": self.model_balthasar,
-            "CASPER": self.model_casper,
-        }.get(agent, self.model_scribe)
+    def model_for(self, agent: str) -> tuple[str, str]:
+        """(provider, model) for an agent role: per-agent override, else the provider default."""
+        spec = {"MELCHIOR": self.model_melchior, "BALTHASAR": self.model_balthasar,
+                "CASPER": self.model_casper}.get(agent, self.model_scribe)
+        if spec and ":" in spec:
+            provider, _, model = spec.partition(":")
+            return provider, model
+        provider = self.provider
+        default = self.openai_model if provider == "openai" else self.anthropic_model
+        return provider, spec or default
 
 
 @lru_cache

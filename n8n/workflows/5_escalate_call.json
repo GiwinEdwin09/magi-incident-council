@@ -56,7 +56,7 @@
     {
       "parameters": {
         "respondWith": "json",
-        "responseBody": "={{ JSON.stringify({ conversation_id: $json.conversation_id, callSid: $json.callSid }) }}",
+        "responseBody": "={{ JSON.stringify({ conversation_id: $json.conversation_id, callSid: $json.callSid, success: $json.success, message: $json.message }) }}",
         "options": {}
       },
       "id": "566c04e2-8da9-534b-a5eb-61ec1ba8ba51",

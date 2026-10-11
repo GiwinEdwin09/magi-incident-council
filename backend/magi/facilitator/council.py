@@ -19,6 +19,8 @@ from magi.facilitator.state import Critique
 from magi.facilitator.voting import decide, pareto, schulze, tally
 from magi.models import (
     AGENTS,
+    Param,
+    ToolRequest,
     ChangeCause,
     Claim,
     CritiqueOutput,
@@ -39,6 +41,9 @@ from magi.sim.scenario import AGENT_TOOLS, DecisionPoint
 
 if TYPE_CHECKING:
     from magi.incident import Incident
+
+
+TOOL_PHASES = {"PROPOSE", "CRITIQUE", "ASSESS"}
 
 
 class Council:
@@ -72,7 +77,8 @@ class Council:
             self.status(a, phase)
 
         async def one(a: str):
-            res, _ = await self.inc.agents[a].call(self.state, phase, schema, self.round, **kw)
+            runner = self._tool_runner(a) if phase in TOOL_PHASES else None
+            res, _ = await self.inc.agents[a].call(self.state, phase, schema, self.round, tool_runner=runner, **kw)
             self.inc.account(res)
             if res.parsed is None:
                 self.emit("agent.error", {"phase": phase, "status": res.status, "detail": res.detail}, a)
@@ -83,6 +89,17 @@ class Council:
 
         pairs = await asyncio.gather(*(one(a) for a in agents))
         return dict(pairs)
+
+    def _tool_runner(self, agent: str):
+        """Native tool calls run through the same path as tool_requests: entitlement, n8n, evidence, events."""
+
+        async def run(name: str, args: dict) -> str:
+            req = ToolRequest(tool=name, params=[Param(name=k, value=str(v)) for k, v in args.items()],
+                              reason="native tool call")
+            ev = await self.inc.run_tool(agent, req)
+            return f"[{ev.id}] {ev.content}" if ev else f"{name} is not available to {agent}."
+
+        return run
 
     def _resolve(self, ref: str | None) -> Optional[Proposal]:
         if not ref:

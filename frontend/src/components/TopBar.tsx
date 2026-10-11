@@ -95,7 +95,7 @@ export function TopBar({ tab, setTab }: { tab: string; setTab: (t: string) => vo
           Agents
           <select value={mode} onChange={(e) => setMode(e.target.value)} className="border border-line bg-panel-2 px-2 py-1 text-ink">
             <option value="scripted">Scripted (offline)</option>
-            <option value="live" disabled={!config?.has_api_key}>Live Claude{config?.has_api_key ? "" : " (needs API key)"}</option>
+            <option value="live" disabled={!config?.has_api_key}>Live LLM{config?.has_api_key ? "" : " (needs API key)"}</option>
             <option value="record" disabled={!config?.has_api_key}>Live + record</option>
             <option value="replay">Replay recording</option>
           </select>

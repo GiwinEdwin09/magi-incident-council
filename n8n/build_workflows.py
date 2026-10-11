@@ -160,7 +160,7 @@ def build() -> dict[str, dict]:
              "={{ JSON.stringify({ agent_id: $json.body.agent_id, agent_phone_number_id: $json.body.agent_phone_number_id, "
              "to_number: $json.body.to_number, conversation_initiation_client_data: { dynamic_variables: $json.body.dynamic_variables } }) }}",
              ELEVEN, 260, timeout_ms=20000),
-        respond("5", "={{ JSON.stringify({ conversation_id: $json.conversation_id, callSid: $json.callSid }) }}", 520),
+        respond("5", "={{ JSON.stringify({ conversation_id: $json.conversation_id, callSid: $json.callSid, success: $json.success, message: $json.message }) }}", 520),
     ], chain("Webhook", "Call on-call (ElevenLabs)", "Respond to MAGI"))
 
     # 6 · post-call: ElevenLabs post-call webhook -> MAGI + Slack summary
@@ -181,6 +181,25 @@ def build() -> dict[str, dict]:
         webhook("7", "magi/close", "onReceived"),
         slack_post("7", "Post decision record", "=📋 *Decision record*\n{{ $json.body.record_markdown }}", 260),
     ], chain("Webhook", "Post decision record"))
+    # 8 · voice tool relay (…/webhook/magi/voice?tool=detail|unseal|add-info|ruling): ElevenLabs server
+    # tools call this stable n8n URL instead of the tunnel, which
+    # changes on every restart. deploy.py rewrites the placeholder to the current PUBLIC_BACKEND_URL.
+    # The X-MAGI-Secret header from ElevenLabs is passed through; MAGI checks it.
+    relay = {"parameters": {
+                "method": "POST",
+                "url": f"={BACKEND_PLACEHOLDER}/voice/{{{{ $json.query.tool }}}}",
+                "sendHeaders": True,
+                "headerParameters": {"parameters": [
+                    {"name": "X-MAGI-Secret", "value": "={{ $json.headers['x-magi-secret'] || '' }}"}]},
+                "sendBody": True, "specifyBody": "json", "jsonBody": "={{ JSON.stringify($json.body) }}",
+                "options": {"timeout": 10000, "response": {"response": {"neverError": True}}}},
+             "id": uid("8", "Relay"), "name": "Forward to MAGI", "type": "n8n-nodes-base.httpRequest",
+             "typeVersion": 4.2, "position": [260, 0]}
+    wfs["8_voice_tool_relay"] = workflow("MAGI 8 · Voice tool relay", [
+        webhook("8", "magi/voice", "responseNode", auth=False),
+        relay,
+        respond("8", "={{ JSON.stringify($json) }}", 520),
+    ], chain("Webhook", "Forward to MAGI", "Respond to MAGI"))
     return wfs
 
 

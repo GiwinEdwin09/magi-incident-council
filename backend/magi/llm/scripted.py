@@ -92,7 +92,8 @@ class ScriptedAdapter:
         return _TEMPLATE.sub(sub, obj)
 
     async def structured(
-        self, *, system: str, user: str, schema: type[T], ctx: PhaseContext, max_tokens: int = 4000
+        self, *, system: str, user: str, schema: type[T], ctx: PhaseContext, max_tokens: int = 4000,
+        tools=None, tool_runner=None,
     ) -> LLMResult:
         if self.delay_s:
             await asyncio.sleep(self.delay_s)

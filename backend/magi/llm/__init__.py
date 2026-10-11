@@ -26,11 +26,32 @@ def build_adapters(settings: Settings, scenario_id: str, mode: str | None = None
         a = ReplayAdapter(recording, delay)
         return {r: a for r in roles}
 
-    from magi.llm.claude import ClaudeAdapter
-
     out: dict[str, LLMAdapter] = {}
     for r in roles:
-        model = (models or {}).get(r) or settings.model_for(r)
-        inner = ClaudeAdapter(model, settings.effort_default, settings.llm_timeout_s)
+        provider, model = settings.model_for(r)
+        if models and models.get(r):
+            spec = models[r]
+            provider, model = spec.split(":", 1) if ":" in spec else (provider, spec)
+        inner = make_live_adapter(settings, provider, model)
         out[r] = RecordingAdapter(inner, recording) if mode == "record" else inner
     return out
+
+
+def make_live_adapter(settings: Settings, provider: str, model: str) -> LLMAdapter:
+    if not model:
+        raise ValueError(f"No model configured for provider '{provider}'. Set OPENAI_MODEL (or MODEL_<AGENT>) in .env.")
+    if provider == "openai":
+        if not settings.openai_api_key:
+            raise ValueError("OPENAI_API_KEY is not set in .env.")
+        from magi.llm.openai_compat import OpenAICompatAdapter
+
+        return OpenAICompatAdapter(model, settings.openai_api_key, settings.openai_base_url, settings.llm_timeout_s,
+                                   settings.openai_reasoning_effort, min_output_tokens=settings.llm_min_output_tokens,
+                                   max_tool_calls=settings.llm_max_tool_calls)
+    if provider == "anthropic":
+        if not settings.anthropic_api_key:
+            raise ValueError("ANTHROPIC_API_KEY is not set in .env.")
+        from magi.llm.claude import ClaudeAdapter
+
+        return ClaudeAdapter(model, settings.anthropic_api_key, settings.effort_default, settings.llm_timeout_s)
+    raise ValueError(f"Unknown LLM provider '{provider}' (use openai or anthropic).")

@@ -15,8 +15,10 @@ class RecordingAdapter:
         self.path = path
         path.parent.mkdir(parents=True, exist_ok=True)
 
-    async def structured(self, *, system: str, user: str, schema: type[T], ctx: PhaseContext, max_tokens: int = 4000) -> LLMResult:
-        res = await self.inner.structured(system=system, user=user, schema=schema, ctx=ctx, max_tokens=max_tokens)
+    async def structured(self, *, system: str, user: str, schema: type[T], ctx: PhaseContext, max_tokens: int = 4000,
+                         tools=None, tool_runner=None) -> LLMResult:
+        res = await self.inner.structured(system=system, user=user, schema=schema, ctx=ctx, max_tokens=max_tokens,
+                                          tools=tools, tool_runner=tool_runner)
         record = {"key": ctx.key(), "status": res.status,
                   "output": res.parsed.model_dump(mode="json") if res.parsed is not None else None}
         with self.path.open("a") as f:
@@ -34,7 +36,8 @@ class ReplayAdapter:
                 rec = json.loads(line)
                 self.records.setdefault(rec["key"], []).append(rec)
 
-    async def structured(self, *, system: str, user: str, schema: type[T], ctx: PhaseContext, max_tokens: int = 4000) -> LLMResult:
+    async def structured(self, *, system: str, user: str, schema: type[T], ctx: PhaseContext, max_tokens: int = 4000,
+                         tools=None, tool_runner=None) -> LLMResult:
         import asyncio
 
         if self.delay_s:

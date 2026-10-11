@@ -1,0 +1,103 @@
+{
+  "name": "MAGI 8 · Voice tool relay",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "magi/voice",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "3d3e7cbb-ed58-51ae-8ea0-e5bd674e9cc0",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "d4e2e852-1ba1-5e2a-b767-6361cf526df6"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://YOUR-MAGI-BACKEND/voice/{{ $json.query.tool }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-MAGI-Secret",
+              "value": "={{ $json.headers['x-magi-secret'] || '' }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.body) }}",
+        "options": {
+          "timeout": 10000,
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "3f3d870b-2cba-5581-aab9-cd47db7b208c",
+      "name": "Forward to MAGI",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        260,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "id": "30ff1acb-53e3-5639-9a1b-e4fd0bc8bf8c",
+      "name": "Respond to MAGI",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        520,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Forward to MAGI",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Forward to MAGI": {
+      "main": [
+        [
+          {
+            "node": "Respond to MAGI",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false
+  }
+}

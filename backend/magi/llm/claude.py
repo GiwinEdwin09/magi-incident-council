@@ -11,14 +11,15 @@ from magi.llm.base import LLMResult, PhaseContext, T
 
 
 class ClaudeAdapter:
-    def __init__(self, model: str, effort: str = "low", timeout_s: float = 45.0):
+    def __init__(self, model: str, api_key: str, effort: str = "low", timeout_s: float = 45.0):
         self.name = f"claude:{model}"
         self.model = model
         self.effort = effort
-        self.client = anthropic.AsyncAnthropic(timeout=timeout_s, max_retries=1)
+        self.client = anthropic.AsyncAnthropic(api_key=api_key, timeout=timeout_s, max_retries=1)
 
     async def structured(
-        self, *, system: str, user: str, schema: type[T], ctx: PhaseContext, max_tokens: int = 4000
+        self, *, system: str, user: str, schema: type[T], ctx: PhaseContext, max_tokens: int = 4000,
+        tools=None, tool_runner=None,
     ) -> LLMResult:
         t0 = time.monotonic()
         try:

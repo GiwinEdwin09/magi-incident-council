@@ -11,7 +11,7 @@ export function SlackPanel() {
   }, [slack.length]);
   return (
     <div className="frame flex min-h-0 flex-col">
-      <SectionTitle right={<span className="text-[11px] text-dim">{slack[0]?.via === "n8n" ? "via n8n" : "local echo (n8n not configured)"}</span>}>
+      <SectionTitle right={<span className="text-[11px] text-dim">{!slack.length ? "" : slack[0].via === "n8n" ? "via n8n" : "local echo (n8n not configured)"}</span>}>
         #incident
       </SectionTitle>
       <ul ref={box} className="min-h-0 flex-1 space-y-1.5 overflow-y-auto p-2 text-[13px]">
@@ -61,7 +61,7 @@ export function WorldPanel() {
         {"exfil_mb" in flags && <Stat label="Data sent out" value={`${Math.round(flags.exfil_mb)} MB`} bad />}
         {"lost_writes" in flags && <Stat label="Lost writes" value={`${Math.round(flags.lost_writes)}`} bad={flags.lost_writes > 0} />}
         <Stat label="Humans paged" value={String(pages)} bad={pages > 0} />
-        {resolved && <Stat label="LLM calls / cost" value={`${resolved.llm_calls} / $${resolved.cost_usd}`} />}
+        {resolved && <Stat label="LLM calls / tokens" value={`${resolved.llm_calls} / ${Math.round((resolved.input_tokens + resolved.output_tokens) / 1000)}k${resolved.cost_usd != null ? ` / $${resolved.cost_usd}` : ""}`} />}
       </div>
     </div>
   );
