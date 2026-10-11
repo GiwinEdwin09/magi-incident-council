@@ -44,6 +44,7 @@ class TimelineItem(BaseModel):
 class Injection(TimelineItem):
     t: float = 0
     eval_fire: Optional[str] = None
+    eval_dp: Optional[str] = None  # decision point the eval fires this at (default: the first)
     demo_auto_at: Optional[float] = None  # scripted demo: auto-inject at this sim time
 
 
@@ -59,6 +60,8 @@ class Scenario(BaseModel):
     title: str
     company: str
     summary: str = ""
+    kind: str = "demo"  # demo | postmortem | synthetic
+    based_on: Optional[dict[str, str]] = None  # {name, url} of the public postmortem it is adapted from
     services: list[str] = Field(default_factory=list)
     speed: float = 6.0
     world: dict[str, Any]
@@ -101,6 +104,9 @@ def list_scenarios() -> list[dict[str, Any]]:
                 "id": data["id"],
                 "title": data["title"],
                 "summary": data.get("summary", ""),
+                "kind": data.get("kind", "demo"),
+                "based_on": data.get("based_on"),
+                "has_script": (p.parent / "scripted" / p.name).exists(),
                 "injections": [
                     {"id": i["id"], "label": i.get("label") or i["id"]} for i in data.get("injections", [])
                 ],

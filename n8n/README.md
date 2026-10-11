@@ -37,7 +37,6 @@ The manual steps below do the same thing through the n8n UI.
 | `3_executor.json` | `magi/execute` | The council (or a human) decides | Runs each action; MAGI rejects anything without a valid signed certificate |
 | `4_confirm.json` | `magi/confirm` | An irreversible (T2) action passed 3/3 | Slack message with **Approve / Deny**; answer goes back to MAGI (no answer in 2 min = deny) |
 | `5_escalate_call.json` | `magi/escalate` | Deadlock on an irreversible action | Phones the on-call engineer through ElevenLabs (needs the voice agent set up) |
-| `6_post_call.json` | `magi/post-call` | ElevenLabs finishes the call | Sends the call summary to MAGI and Slack |
 | `7_decision_record.json` | `magi/close` | Incident closes | Posts the decision record (postmortem draft) to `#incident` |
 
 ## Step 1. Give n8n a way to reach your laptop
@@ -145,9 +144,9 @@ To debug anything, open the workflow in n8n → **Executions** to see each run's
 ## Notes
 
 - **Security model:** n8n webhooks require the shared secret; MAGI re-verifies an HMAC certificate on every action
-  n8n tries to execute (tested: a forged action sent straight to n8n is refused and logged). The post-call webhook
-  has no shared secret because ElevenLabs can't send custom headers; verifying ElevenLabs' HMAC signature there is a
-  stretch goal.
+  n8n tries to execute (tested: a forged action sent straight to n8n is refused and logged). ElevenLabs' post-call
+  webhook goes straight to MAGI (`/calls/elevenlabs`), which verifies its HMAC signature before posting the call
+  summary to Slack through the notify workflow (the old unauthenticated workflow 6 was removed).
 - **Production path:** the tool gateway currently fetches simulated data from MAGI. At a real company you would point
   its HTTP node(s) at Datadog, Splunk, or the CRM instead; the council code doesn't change.
 - **Regenerating:** edit `n8n/build_workflows.py` and run `python3 n8n/build_workflows.py`.

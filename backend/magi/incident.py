@@ -482,6 +482,11 @@ class Incident:
         return " ".join(hits) if hits else "MAGI doesn't have that information."
 
     # ================================================================ slack echo & record
+    def call_ended(self, text: str, summary: str, conversation_id: Optional[str], duration_s: Any) -> None:
+        self.bus.emit("call.status", {"status": "ended", "summary": summary, "conversation_id": conversation_id,
+                                      "duration_s": duration_s})
+        self._slack(text, kind="call_summary")
+
     def _slack(self, text: str, kind: str, via: str | None = None) -> None:
         """Every MAGI message is echoed in the UI; with n8n configured it also goes to real Slack
         through the notify workflow (the decision record goes through the close workflow instead)."""

@@ -4,6 +4,8 @@ import { useStore } from "../lib/store";
 import type { AppConfig, IncidentSummary, ScenarioInfo } from "../lib/types";
 import { simTime } from "../lib/types";
 
+const GROUPS: [string, string][] = [["demo", "Demo"], ["postmortem", "Based on real postmortems"], ["synthetic", "Synthetic"]];
+
 export function TopBar({ tab, setTab }: { tab: string; setTab: (t: string) => void }) {
   const view = useStore((s) => s.view);
   const connected = useStore((s) => s.connected);
@@ -35,6 +37,13 @@ export function TopBar({ tab, setTab }: { tab: string; setTab: (t: string) => vo
   useEffect(() => {
     refreshHistory();
   }, [incidentId, finished]);
+
+  const scripted = scenarios.find((s) => s.id === scenario)?.has_script ?? true;
+  const pickScenario = (id: string) => {
+    setScenario(id);
+    // Postmortem and synthetic scenarios have no scripted agent outputs: they run live.
+    if (mode === "scripted" && !scenarios.find((s) => s.id === id)?.has_script) setMode(config?.has_api_key ? "live" : "replay");
+  };
 
   const start = async () => {
     setError(null);
@@ -89,7 +98,7 @@ export function TopBar({ tab, setTab }: { tab: string; setTab: (t: string) => vo
 
       <div className="flex flex-wrap items-center gap-2 border-t border-line px-4 py-2">
         <nav className="mr-3 flex" aria-label="Views">
-          {[["control", "Control room"], ["record", "Decision record"]].map(([id, label]) => (
+          {[["control", "Control room"], ["record", "Decision record"], ["eval", "Evaluation"]].map(([id, label]) => (
             <button key={id} onClick={() => setTab(id)}
               className={`display border px-3 py-1 text-[13px] ${tab === id ? "border-amber bg-amber text-black" : "border-line text-dim hover:text-ink"}`}>
               {label}
@@ -99,15 +108,22 @@ export function TopBar({ tab, setTab }: { tab: string; setTab: (t: string) => vo
 
         <label className="flex items-center gap-2 text-[13px] text-dim">
           Scenario
-          <select value={scenario} onChange={(e) => setScenario(e.target.value)}
-            className="border border-line bg-panel-2 px-2 py-1 text-ink">
-            {scenarios.map((s) => <option key={s.id} value={s.id}>{s.title}</option>)}
+          <select value={scenario} onChange={(e) => pickScenario(e.target.value)}
+            className="max-w-72 border border-line bg-panel-2 px-2 py-1 text-ink">
+            {GROUPS.map(([kind, label]) => {
+              const items = scenarios.filter((s) => (s.kind ?? "demo") === kind);
+              return items.length ? (
+                <optgroup key={kind} label={label}>
+                  {items.map((s) => <option key={s.id} value={s.id} title={s.based_on ? `Adapted from: ${s.based_on.name}` : s.summary}>{s.title}</option>)}
+                </optgroup>
+              ) : null;
+            })}
           </select>
         </label>
         <label className="flex items-center gap-2 text-[13px] text-dim">
           Agents
           <select value={mode} onChange={(e) => setMode(e.target.value)} className="border border-line bg-panel-2 px-2 py-1 text-ink">
-            <option value="scripted">Scripted (offline)</option>
+            <option value="scripted" disabled={!scripted}>Scripted (offline){scripted ? "" : " (demo scenarios only)"}</option>
             <option value="live" disabled={!config?.has_api_key}>Live LLM{config?.has_api_key ? "" : " (needs API key)"}</option>
             <option value="record" disabled={!config?.has_api_key}>Live + record</option>
             <option value="replay">Replay recording</option>

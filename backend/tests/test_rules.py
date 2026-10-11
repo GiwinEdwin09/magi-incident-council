@@ -131,3 +131,22 @@ def test_certificate():
     assert certificate.verify("k", sig, "D-1", "sha256:abc", "EXECUTE")
     assert not certificate.verify("k", sig, "D-1", "sha256:abc", "CONFIRM")
     assert not certificate.verify("other", sig, "D-1", "sha256:abc", "EXECUTE")
+
+
+def test_elevenlabs_post_call_signature():
+    import hashlib
+    import hmac
+    import time
+
+    from magi.main import verify_elevenlabs_signature
+
+    body, secret = b'{"type":"post_call_transcription"}', "wsec_test"
+    ts = str(int(time.time()))
+    good = f"t={ts},v0=" + hmac.new(secret.encode(), f"{ts}.".encode() + body, hashlib.sha256).hexdigest()
+    assert verify_elevenlabs_signature(body, good, secret)
+    assert not verify_elevenlabs_signature(body + b" ", good, secret)  # tampered body
+    assert not verify_elevenlabs_signature(body, good, "")  # no secret configured: fail closed
+    assert not verify_elevenlabs_signature(body, None, secret)
+    old = str(int(time.time()) - 7200)
+    stale = f"t={old},v0=" + hmac.new(secret.encode(), f"{old}.".encode() + body, hashlib.sha256).hexdigest()
+    assert not verify_elevenlabs_signature(body, stale, secret)  # replayed after the tolerance window

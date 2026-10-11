@@ -30,8 +30,12 @@ CATALOG: dict[str, ActionSpec] = {
         ActionSpec("investigate.snapshot_memory", "host", "Capture a forensic memory snapshot (non-disruptive)", Tier.T0, "never", "none"),
         ActionSpec("legal.open_breach_assessment", "incident", "Open an internal breach assessment (no external notice)", Tier.T0, "never", "none"),
         ActionSpec("deploy.halt_pipeline", "service", "Block further deploys", Tier.T0, "never", "none"),
+        ActionSpec("investigate.verify", "target, check", "Verify a fact before acting (host identity, backup integrity, alert source)", Tier.T0, "never", "none"),
         ActionSpec("deploy.rollback", "service, to_version", "Roll a service back to a previous version", Tier.T1, "rollback crosses a schema migration", "MELCHIOR"),
         ActionSpec("service.scale_out", "service, replicas", "Add capacity", Tier.T1, "never", "none"),
+        ActionSpec("service.restart", "service", "Restart a service or subsystem (cold start if it is fully down)", Tier.T1, "never", "MELCHIOR"),
+        ActionSpec("network.restore", "scope", "Bring network capacity back (region by region, or global)", Tier.T1, "scope is global (load and power surge)", "MELCHIOR"),
+        ActionSpec("data.restore", "scope, priority", "Restore deleted or corrupted data from backups", Tier.T1, "never", "BALTHASAR"),
         ActionSpec("feature_flag.set", "flag, state", "Toggle a feature flag", Tier.T1, "flag is a security control", "BALTHASAR"),
         ActionSpec("traffic.shed", "service, percent", "Shed a percentage of non-critical traffic", Tier.T1, "percent > 25", "CASPER"),
         ActionSpec("firewall.block_egress", "host, destination", "Block outbound traffic from a host to a destination", Tier.T1, "destination is a production dependency", "MELCHIOR"),
@@ -43,6 +47,7 @@ CATALOG: dict[str, ActionSpec] = {
         ActionSpec("credentials.rotate", "scope", "Rotate credentials", Tier.T1, "rotation breaks production integrations", "MELCHIOR"),
         ActionSpec("service.kill_switch", "service", "Stop a service from processing", Tier.T1, "never", "MELCHIOR"),
         ActionSpec("status_page.publish", "severity, message", "Publish to the public status page", Tier.T1, "never", "CASPER"),
+        ActionSpec("comms.alternate_channel", "channel, message", "Publish a customer update through another channel (social, email) when the status page is down", Tier.T1, "never", "CASPER"),
         ActionSpec("customers.notify", "segment, message", "Send an external customer notification", Tier.T2, "always irreversible", "CASPER"),
     ]
 }
@@ -85,6 +90,12 @@ def classify(action: ActionCall, state: dict[str, Any]) -> tuple[Tier, str]:
         case "security.disable_control":
             if p.get("scope") == "global" or _num(p.get("minutes")) > 30:
                 return Tier.T2, "global or long security-control disable"
+        case "credentials.rotate":
+            if _get(state, f"credentials.{p.get('scope', '')}.breaks_integrations"):
+                return Tier.T2, f"rotating {p.get('scope')} breaks production integrations"
+        case "network.restore":
+            if p.get("scope") == "global":
+                return Tier.T2, "restoring everything at once risks a load and power surge"
         case "deploy.rollback":
             svc = _get(state, f"services.{p.get('service', '')}", {}) or {}
             if svc.get("migration_since_previous"):
@@ -118,6 +129,10 @@ def veto_owners(draft: ProposalDraft, state: dict[str, Any]) -> set[str]:
         aid = a.action_id
         if (aid == "host.isolate_network" and asset.get("serving")) or aid == "service.kill_switch":
             owners.add("MELCHIOR")
+        if (aid == "credentials.rotate" and _get(state, f"credentials.{p.get('scope', '')}.breaks_integrations")) or (
+            aid == "network.restore" and p.get("scope") == "global"
+        ):
+            owners.add("MELCHIOR")
         if (aid == "host.restart" and asset.get("suspicious")) or aid in {
             "security.disable_control",
             "db.wipe_and_resync",
@@ -127,7 +142,7 @@ def veto_owners(draft: ProposalDraft, state: dict[str, Any]) -> set[str]:
             lag = float(_get(state, f"clusters.{p.get('cluster', '')}.replication_lag_s", 0) or 0)
             if lag > 0.5 and not p.get("when"):
                 owners.add("CASPER")
-        if aid in {"status_page.publish", "customers.notify"} or (
+        if aid in {"status_page.publish", "customers.notify", "comms.alternate_channel"} or (
             aid == "traffic.shed" and _num(p.get("percent")) > 25
         ):
             owners.add("CASPER")

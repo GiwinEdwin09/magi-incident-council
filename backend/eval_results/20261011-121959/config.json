@@ -1,0 +1,31 @@
+{
+  "started": "2026-10-11T12:19:59",
+  "mode": "live",
+  "conditions": [
+    "B1",
+    "B2",
+    "C"
+  ],
+  "runs": 1,
+  "scenarios": [
+    "pm_cascade_regex",
+    "pm_dark_backbone",
+    "pm_dormant_flag",
+    "pm_typo_takedown",
+    "pm_wrong_host",
+    "pm_wrong_ids",
+    "s1_friday_deploy",
+    "s2_ghost_process",
+    "syn_lagging_failover",
+    "syn_leaked_key",
+    "syn_pentest_rumor",
+    "syn_phantom_spike"
+  ],
+  "models": {
+    "MELCHIOR": "openai:gpt-6-luna",
+    "BALTHASAR": "openai:gpt-6-luna",
+    "CASPER": "openai:gpt-6-luna",
+    "SCRIBE": "openai:gpt-6-luna"
+  },
+  "reasoning_effort": "high"
+}

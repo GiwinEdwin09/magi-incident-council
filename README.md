@@ -83,6 +83,60 @@ Every event is written to an append-only SQLite log (`DB_PATH`). Live incidents 
 - The page URL ends in `#INC-XXXX`, so a refresh or a shared link reopens that incident, replayed from the log, with its decision record.
 - On startup, any incident a restart cut off is closed as *interrupted*. Finished incidents are read-only.
 
+## Evaluation: does the council beat one agent?
+
+`python -m magi.evaluation.run` replays labeled incidents and scores three conditions on the same decision points:
+
+| Condition | What it is |
+|---|---|
+| **B1** | One agent that sees *every* feed and all evidence (deliberately ignoring need-to-know), picks actions, and may escalate |
+| **B2** | Three agents propose, score, rank (Schulze), and vote once: no critique, dissent, or amendments |
+| **C** | The full MAGI council |
+
+**Scenarios** (`backend/scenarios/`, 13 decision points). Six are adapted, anonymized, from public postmortems; each decision point is labeled in advance with best, acceptable, and harmful actions and whether a human should decide:
+
+| Scenario | Adapted from | The trap |
+|---|---|---|
+| `pm_cascade_regex` | Cloudflare, Jul 2019 | Security has to yield: switch the firewall off globally, briefly |
+| `pm_wrong_host` | GitLab, Jan 2017 | A wipe proposed on the wrong host, with empty backups |
+| `pm_typo_takedown` | AWS S3, Feb 2017 | Slow full restart, and the status page is down too |
+| `pm_dormant_flag` | Knight Capital, Aug 2012 | The familiar rollback makes it worse |
+| `pm_dark_backbone` | Facebook, Oct 2021 | Tools are blind: say "not enough information" |
+| `pm_wrong_ids` | Atlassian, Apr 2022 | Customers must hear from us directly |
+| `syn_leaked_key`, `syn_phantom_spike`, `syn_lagging_failover`, `syn_pentest_rumor` | synthetic | Security should win · nobody should be paged · a human must decide · reject the rumor |
+| `s1_friday_deploy`, `s2_ghost_process` | the demo scenarios | |
+
+**Metrics** (all from event logs): harmful recommendation rate, harmful actions that would run with no human check, escalation accuracy and precision/recall, false-evidence rejection, best and acceptable action rates, pages, initial disagreement, changes of mind by cause, and tokens / time per decision point. Rates come with bootstrap 95% CIs over decision points. Open-loop: nothing executes; the world is set to each decision point's moment.
+
+**Hypotheses** (from the build plan, written before running): **H1** the council recommends fewer harmful actions than B1; **H2** it escalates more accurately than B1; **H3** it rejects false evidence more often than B1; **H4** (expected null) on best-action rate it is about equal to B2.
+
+```bash
+cd backend && uv run python -m magi.evaluation.run --estimate          # run count, no API calls
+cd backend && uv run python -m magi.evaluation.run --conditions B1,B2,C --runs 1
+```
+
+Results land in `backend/eval_results/<timestamp>/` (`summary.md`, `summary.json`, `runs.jsonl`, and a full trace of every run) and in the **Evaluation** tab of the UI.
+
+### First results (`eval_results/20261011-121959`, gpt-6-luna, 1 run per decision point)
+
+| | B1 single agent | B2 vote only | C council |
+|---|---|---|---|
+| Harmful recommendation | 0% | 0% | 0% |
+| Escalation accuracy | 38% | **77%** | 31% |
+| Best action | 30% | **40%** | 20% |
+| False evidence rejected | 3/3 | 3/3 | 3/3 |
+| Pages per decision point | 0.69 | 0.54 | 0.77 |
+| Tokens / wall time per decision point | 4.5k / 22s | 70k / 88s | 145k / 174s |
+
+**H1 tie, H2 not supported, H3 tie, H4 council lower.** Nothing harmful ran in any condition, and every condition caught the planted false evidence. The council escalated to a human too often, and the traces show why:
+
+1. **A protocol bug:** "≥2 agents lack information → escalate" fires before voting, even when every proposal is the information-gathering step itself (`pm_wrong_host`: all three proposed verifying the host and backups, then escalated instead of doing it).
+2. **Latency:** at this model's speed, critique rounds hit the 180-second decision budget, which forces an escalation (`pm_typo_takedown`).
+3. **Policy text written as a human gate:** in `pm_cascade_regex` BALTHASAR's policy requires the security on-call's approval to disable a control, and it enforced that. Defensible, but the label said no human was needed.
+
+With 13 decision points and one run each, the CIs are wide (see `summary.md`). Labels were written by one person, not two independently as the plan asks; three scoring mistakes (a version string format and two too-narrow acceptable-action lists) were fixed after the run by re-scoring the stored outputs (`report.py --rescore`), applied identically to all conditions; no escalation label was changed.
+
+
 ## How it decides
 
 - **No chair.** A code-only Facilitator routes messages, enforces visibility, computes tiers, counts votes and applies the rules. It never picks a winner.
@@ -100,7 +154,9 @@ backend/            FastAPI + asyncio council engine (Python 3.12, uv)
   magi/agents/      charter, mandates, phase prompts, agent wrapper
   magi/llm/         OpenAI-compatible + Claude adapters (structured outputs), scripted, record/replay
   magi/sim/         scenario loader, simulated world, tool feeds
-  scenarios/        incident scenarios + scripted agent outputs
+  magi/evaluation/  eval harness: conditions B1/B2/C, label scoring, report
+  scenarios/        demo, postmortem-based and synthetic scenarios (with labels) + scripted agent outputs
+  eval_results/     evaluation runs: summary, scored runs, full traces
   tests/            invariants: need-to-know, sealed redaction, decision rules, end-to-end scenarios
 frontend/           React + Vite + Tailwind control room (pure function of the event log)
 n8n/                workflow builder, one-command deploy (deploy.py), setup guide
@@ -119,11 +175,11 @@ reports/, research_notes/   competitive landscape research
 | Control-room UI (evidence, agents, ballot, proposals, log, escalation, confirm, decision record) | ✅ |
 | Integration endpoints for n8n (`/alerts`, `/sim/*`, `/confirm/*`) and ElevenLabs (`/voice/*`) | ✅ built, local fallback when not configured |
 | Live LLM mode (OpenAI Responses API with native tool calls, OpenAI-compatible servers, or Claude) | ✅ run live on S1 |
-| n8n workflows (notify, alert intake, tool gateway, executor, T2 confirm, escalation call, post-call, decision record, voice tool relay) | ✅ deployed with `python3 n8n/deploy.py`, tested end to end on n8n Cloud with zero fallbacks; guide in `n8n/README.md` |
+| n8n workflows (notify, alert intake, tool gateway, executor, T2 confirm, escalation call, decision record, voice tool relay) | ✅ deployed with `python3 n8n/deploy.py`, tested end to end on n8n Cloud with zero fallbacks; guide in `n8n/README.md` |
 | ElevenLabs phone escalation (Twilio number, four voice tools) | ✅ tested on a real call: unseal by code, add information by voice, council re-deliberates, T2 approved in Slack. `submit_ruling` by voice not yet exercised |
 | Hosting | ✅ Render web service with a persistent disk; incident history survives deploys |
-| Evaluation harness and postmortem replay scenarios | ⏳ next (plan §15) |
-| ElevenLabs post-call summary webhook (workspace setting) | ⏳ to set: `https://<n8n>/webhook/magi/post-call` |
+| Evaluation harness (B1 / B2 / council) and 10 labeled postmortem + synthetic scenarios | ✅ first live run done (council over-escalates; two protocol fixes identified, see Evaluation) |
+| ElevenLabs post-call summary webhook | ✅ HMAC-verified at `/calls/elevenlabs`; set up with `elevenlabs/setup_webhook.py` |
 | AGNTCY / Brev stretch goals | ⏳ |
 
 ## Research

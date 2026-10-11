@@ -15,9 +15,12 @@ Verify field names against the current ElevenLabs docs before the demo:
 1. Create an agent named **MAGI Liaison**. Choose a calm, clear voice and a low-latency LLM.
 2. Twilio: buy a number and import it into ElevenLabs. Trial accounts can only call **verified** numbers.
 3. Paste the system prompt and first message below.
-4. Add the four server tools below. Each sends header `X-MAGI-Secret: <ELEVENLABS_TOOL_SECRET>` and
-   passes `incident_id` = `{{incident_id}}`.
-5. Set the post-call webhook to n8n W6 (`/webhook/magi/post-call`) and keep the webhook secret for HMAC checks.
+4. Add the four server tools: `python3 elevenlabs/setup_tools.py` creates them (calling the n8n voice relay
+   with header `X-MAGI-Secret: <ELEVENLABS_TOOL_SECRET>`) and attaches them to the agent.
+5. Post-call webhook: `python3 elevenlabs/setup_webhook.py https://<your-backend>` creates an HMAC-signed
+   workspace webhook to MAGI's `/calls/elevenlabs`, saves its secret to `.env` as `ELEVENLABS_WEBHOOK_SECRET`,
+   and selects it for ElevenLabs Agents. Copy that variable to your backend host. MAGI rejects unsigned calls,
+   then posts the call summary to Slack through n8n. (Needs a key with the Webhooks write permission.)
 6. Put `ELEVENLABS_AGENT_ID`, `ELEVENLABS_PHONE_NUMBER_ID`, `ONCALL_PHONE`, `ONCALL_NAME` in `.env`.
    The backend must be reachable from ElevenLabs (`PUBLIC_BACKEND_URL`).
 
