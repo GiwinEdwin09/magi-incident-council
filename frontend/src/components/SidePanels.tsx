@@ -11,7 +11,7 @@ export function SlackPanel() {
   }, [slack.length]);
   return (
     <div className="frame flex min-h-0 flex-col">
-      <SectionTitle right={<span className="text-[11px] text-dim">{slack[0]?.via === "n8n" ? "via n8n" : "local echo (n8n not configured)"}</span>}>
+      <SectionTitle right={<span className="text-[11px] text-dim">{!slack.length ? "" : slack[0].via === "n8n" ? "via n8n" : "local echo (n8n not configured)"}</span>}>
         #incident
       </SectionTitle>
       <ul ref={box} className="min-h-0 flex-1 space-y-1.5 overflow-y-auto p-2 text-[13px]">
